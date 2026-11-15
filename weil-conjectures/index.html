@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Weil Conjectures</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── the numbers ─────────────────────────────
+// E : y² = x³ − x + 1 over 𝔽₇.  aₚ = α + ᾱ = −4,  αᾱ = 7.
+const P = 7, A = -4;
+// sₙ = αⁿ + ᾱⁿ via sₙ = A·sₙ₋₁ − P·sₙ₋₂;   Nₙ = Pⁿ + 1 − sₙ
+const S = [2, A];
+for (let n = 2; n <= 8; n++) S.push(A * S[n - 1] - P * S[n - 2]);
+const Nn = (n) => P ** n + 1 - S[n];
+const minus = (n) => String(n).replace('-', '−');
+const THETA = Math.atan2(Math.sqrt(4 * P - A * A), A);   // arg α
+
+function card(x, y, w, h, n, head, body, a, hot = false) {
+  if (a <= 0) return;
+  panel(x, y, w, h, '', a);
+  if (hot) { ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = COL.pink; ctx.lineWidth = 2.5; ctx.shadowColor = COL.pink; ctx.shadowBlur = 18; rr(x, y, w, h, 14); ctx.stroke(); ctx.restore(); }
+  txt(n, x + 28, y + 30, { size: 20, weight: 700, color: COL.pink, alpha: a });
+  txt(head, x + w / 2, y + 42, { size: 26, weight: 700, alpha: a });
+  txt(body, x + w / 2, y + h - 42, { size: 22, font: MATH, color: COL.soft, alpha: a });
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "Last time we counted points on an elliptic curve over the field with seven elements, then forty-nine, then three hundred forty-three, and saw that a single pair of numbers, alpha and alpha bar, predicted every count. That's suspicious. In nineteen forty-nine, André Weil asked: is this always true, for every equation, in any number of variables? His answer became the Weil conjectures, the problem that étale cohomology was built to solve.",
+    draw(p) {
+      txt('The Weil conjectures', 640, 90, { size: 58, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      const row = (n, at) => {
+        const a = ease(seg(p, at, at + 0.05));
+        const y = 190 + n * 52;
+        txt(`over 𝔽 with 7${'⁰¹²³⁴⁵⁶'[n]} elements:`, 560, y, { size: 26, font: MATH, align: 'right', color: COL.soft, alpha: a });
+        txt(`${Nn(n)} points`, 600, y, { size: 28, font: MATH, weight: 700, align: 'left', alpha: a });
+      };
+      for (let n = 1; n <= 5; n++) row(n, 0.05 + n * 0.04);
+      txt('⋮', 640, 480, { size: 30, color: COL.dim, alpha: ease(seg(p, 0.28, 0.32)) });
+      txt('all controlled by  α, ᾱ = −2 ± √3 i', 640, 530, { size: 32, font: MATH, color: COL.lav, glow: 10, alpha: ease(seg(p, 0.36, 0.43)) });
+      txt('Weil, 1949: is this always true?', 640, 610, { size: 32, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.52, 0.6)) });
+    },
+  },
+  {
+    title: 'The zeta function',
+    text: "First, Weil packaged all the counts together. Take the count over the field with p to the n elements, call it N sub n, and pack them all into one power series, like this. Why the exponential, and why divide by n? Try a single point: one point over every field, so the series is t, plus t squared over two, plus t cubed over three. That sum is minus the log of one minus t, and the exponential undoes the log, leaving one over one minus t. That's the reason for the exp and the one over n: any term c to the n in the count becomes one simple factor, one over one minus c t. A line, plus its point at infinity, has p to the n plus one points, and its zeta function is one over one minus t, times one minus p t. Simple fractions.",
+    draw(p) {
+      txt('Z(t)  =  exp( N₁t + N₂t²/2 + N₃t³/3 + ⋯ )', 640, 120, { size: 40, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.13, 0.19)) });
+      txt('Nₙ = number of points over the field with pⁿ elements', 640, 180, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.1, 0.16)) });
+      txt('why exp, and why divide by n?  try one point:', 640, 230, { size: 20, color: COL.dim, alpha: fade(p, 0.21, 0.26, 0.56, 0.59) });
+      txt('the reason:   cⁿ in the count   ⟶   one factor  1 / (1 − ct)', 640, 232, { size: 28, font: MATH, weight: 700, color: COL.lav, glow: 10, alpha: ease(seg(p, 0.6, 0.66)) });
+      const la = ease(seg(p, 0.26, 0.31)), ra = ease(seg(p, 0.77, 0.82));
+      panel(90, 280, 520, 300, 'a single point', la);
+      dot(350, 330, 11, COL.pink, la, 18);
+      txt('Nₙ = 1', 350, 380, { size: 26, font: MATH, alpha: ease(seg(p, 0.29, 0.34)) });
+      txt('Z = exp( t + t²/2 + t³/3 + ⋯ )', 350, 432, { size: 26, font: MATH, alpha: ease(seg(p, 0.35, 0.4)) });
+      txt('= exp( −log(1 − t) )', 350, 480, { size: 26, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.44, 0.49)) });
+      txt('= 1 / (1 − t)', 350, 535, { size: 34, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.54, 0.59)) });
+      panel(670, 280, 520, 300, 'a line, plus its point at ∞', ra);
+      line(780, 360, 1080, 360, COL.lav, 3, ra);
+      dot(1100, 360, 6, COL.lav, ra);
+      txt('+ ∞', 1130, 360, { size: 20, color: COL.lav, alpha: ra });
+      txt('Nₙ = pⁿ + 1', 930, 425, { size: 28, font: MATH, alpha: ra });
+      txt('Z(t) = 1 / ((1 − t)(1 − pt))', 930, 510, { size: 32, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.86, 0.91)) });
+      txt('infinite lists → simple fractions', 640, 640, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.94, 0.99)) });
+    },
+  },
+  {
+    title: 'Our curve',
+    text: "Now our elliptic curve mod seven. Feed in all the counts: twelve, forty-eight, three hundred twenty-four, and on forever. Last time we saw that N sub n equals one, plus seven to the n, minus alpha to the n, minus alpha bar to the n. Each piece of that formula becomes one factor, just like the point and the line. The one gives one minus t, and the seven to the n gives one minus seven t, both on the bottom, like the line. The alphas come with a minus sign, which flips them to the top: one minus alpha t, times one minus alpha bar t. Multiplied out, that's one plus four t plus seven t squared. Infinitely many counts, compressed into three small polynomials. That's the first Weil conjecture: the zeta function is always a fraction of polynomials.",
+    draw(p) {
+      const a0 = ease(seg(p, 0.0, 0.05));
+      txt('E :  y² = x³ − x + 1   over 𝔽₇', 640, 66, { size: 30, font: MATH, alpha: a0 });
+      for (let n = 1; n <= 6; n++) {
+        const a = ease(seg(p, 0.06 + n * 0.02, 0.09 + n * 0.02));
+        txt(`N${'₀₁₂₃₄₅₆'[n]} = ${Nn(n)}`, 170 + (n - 1) * 190, 122, { size: 24, font: MATH, color: COL.soft, alpha: a });
+      }
+      // the count formula, one term per factor
+      const fa = ease(seg(p, 0.1, 0.16));
+      const ka = ease(seg(p, 0.37, 0.42)), kb = ease(seg(p, 0.44, 0.49)), kc = ease(seg(p, 0.55, 0.6));
+      txt('Nₙ  =', 455, 205, { size: 36, font: MATH, align: 'right', alpha: fa });
+      txt('1', 500, 205, { size: 36, font: MATH, weight: 700, color: ka > 0.5 ? COL.pink : COL.white, alpha: fa });
+      txt('− αⁿ − ᾱⁿ', 640, 205, { size: 36, font: MATH, weight: 700, color: kc > 0.5 ? COL.lav : COL.white, alpha: fa });
+      txt('+ 7ⁿ', 790, 205, { size: 36, font: MATH, weight: 700, color: kb > 0.5 ? COL.pink : COL.white, alpha: fa });
+      // curved arrows around the sides of the fraction
+      const bez = (x1, y1, cx, cy, x2, y2, c, a) => {
+        if (a <= 0) return;
+        const pts = [];
+        for (let k = 0; k <= 24; k++) { const s = k / 24, u = 1 - s; pts.push([u * u * x1 + 2 * u * s * cx + s * s * x2, u * u * y1 + 2 * u * s * cy + s * s * y2]); }
+        polyline(pts.slice(0, 23), c, 2.5, a);
+        arrow(pts[22][0], pts[22][1], x2, y2, c, 2.5, a);
+      };
+      const ya = ease(seg(p, 0.27, 0.32));
+      txt('Z(t) =', 380, 378, { size: 40, font: MATH, align: 'right', alpha: ya });
+      line(470, 378, 815, 378, COL.white, 3, ya);
+      bez(498, 228, 410, 330, 488, 430, COL.pink, ka);
+      txt('(1 − t)', 560, 432, { size: 40, font: MATH, alpha: ka });
+      bez(792, 228, 870, 330, 812, 430, COL.pink, kb);
+      txt('(1 − 7t)', 725, 432, { size: 40, font: MATH, alpha: kb });
+      txt('same as the line', 860, 470, { size: 20, color: COL.dim, align: 'left', alpha: ease(seg(p, 0.51, 0.56)) });
+      arrow(640, 228, 640, 290, COL.lav, 2.5, kc);
+      txt('(1 − αt)(1 − ᾱt)', 640, 322, { size: 40, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.63, 0.68)) });
+      txt('top multiplied out:  1 + 4t + 7t²', 640, 512, { size: 34, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.72, 0.77)) });
+      txt('infinitely many counts → 3 small polynomials', 640, 572, { size: 26, color: COL.soft, alpha: ease(seg(p, 0.8, 0.85)) });
+      txt('Conjecture 1: Z is always a fraction of polynomials', 640, 632, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.86, 0.92)) });
+    },
+  },
+  {
+    title: 'The shape shows through',
+    text: "Here's the second surprise. Look at the degrees of those polynomials. The bottom left, one minus t, has degree one. The top has degree two. The bottom right has degree one. One, two, one. Where have we seen that? Those are the sizes of H zero, H one and H two for the torus, from the homology and cohomology videos. And the top-bottom pattern, H one on top, H zero and H two below, matches the alternating signs in the Lefschetz formula. Counting points mod p somehow sees the shape of the complex torus.",
+    draw(p, t) {
+      const rows = [
+        ['H⁰', '1 − t', '1', 0.15, 470, COL.white],
+        ['H¹', '1 + 4t + 7t²', '2', 0.25, 270, COL.pink],
+        ['H²', '1 − 7t', '1', 0.35, 470, COL.white],
+      ];
+      // fraction layout: H¹ on top, H⁰ and H² below
+      const a0 = ease(seg(p, 0.03, 0.1));
+      line(140, 370, 760, 370, COL.white, 3, a0);
+      txt('(1 + 4t + 7t²)', 450, 300, { size: 44, font: MATH, color: COL.pink, alpha: a0 });
+      txt('(1 − t)', 300, 440, { size: 44, font: MATH, alpha: a0 });
+      txt('(1 − 7t)', 590, 440, { size: 44, font: MATH, alpha: a0 });
+      const da = (at) => ease(seg(p, at, at + 0.05));
+      txt('degree 1', 300, 500, { size: 22, color: COL.lav, alpha: da(0.15) });
+      txt('degree 2', 450, 240, { size: 22, color: COL.lav, alpha: da(0.22) });
+      txt('degree 1', 590, 500, { size: 22, color: COL.lav, alpha: da(0.29) });
+      txt('1,  2,  1', 450, 590, { size: 44, weight: 700, font: MATH, color: COL.lav, glow: 14, alpha: da(0.34) });
+      // torus with Betti numbers
+      const ta = ease(seg(p, 0.42, 0.5));
+      drawSurface({ pitch: 1.0, yaw: -0.25 + 0.35 * Math.sin(t * 0.35), cx: 1010, cy: 300, scale: 95, alpha: ta });
+      const b = [['H⁰ = ℤ', '1'], ['H¹ = ℤ²', '2'], ['H² = ℤ', '1']];
+      b.forEach(([h, d], i) => {
+        const a = ease(seg(p, 0.48 + i * 0.04, 0.52 + i * 0.04));
+        txt(h, 960, 460 + i * 46, { size: 26, font: MATH, align: 'right', alpha: a });
+        txt(`size ${d}`, 990, 460 + i * 46, { size: 24, align: 'left', color: COL.lav, alpha: a });
+      });
+      txt('H¹ on top, H⁰ and H² below  =  the Lefschetz signs  + − +', 640, 660, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.7, 0.78)) });
+      txt('mod p counting sees the complex shape!', 640, 140 - 60, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.88, 0.94)) });
+    },
+  },
+  {
+    title: 'The four conjectures',
+    text: "Weil conjectured this for every smooth equation, with no sharp corners or crossings, in any dimension. Here q is the size of the field, p or a power of p, and d is the dimension: one for curves. Four statements. One: the zeta function is a fraction of polynomials, where P sub i is the polynomial for H sub i. Two: a mirror symmetry, swapping t with t prime, where q to the d, times t, times t prime, equals one. For our curve, seven divided by alpha is exactly alpha bar, so the roots come in mirror pairs. Three: the degrees of the polynomials are the Betti numbers, the sizes of H i for the complex shape. And four, the hardest: the Riemann hypothesis.",
+    draw(p) {
+      txt('any smooth X (no sharp corners or crossings), any dimension:', 640, 68, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.0, 0.06)) });
+      txt('q = size of the field (p or a power of p)      d = dimension (1 for curves)', 640, 102, { size: 21, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.1, 0.16)) });
+      const cw = 540, ch = 200;
+      card(80, 130, cw, ch, '1', 'Rationality', 'Z(t) = P₁ P₃ ⋯ / P₀ P₂ ⋯', ease(seg(p, 0.29, 0.34)));
+      txt('Pᵢ = the polynomial for Hⁱ', 350, 228, { size: 21, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.37, 0.42)) });
+      card(660, 130, cw, ch, '2', 'Functional equation', 't  ↔  t′,    qᵈ · t · t′ = 1', ease(seg(p, 0.45, 0.5)));
+      txt('ours:  7 / α = ᾱ   →  roots in mirror pairs', 930, 228, { size: 21, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.62, 0.67)) });
+      card(80, 360, cw, ch, '3', 'Betti numbers', 'deg Pᵢ = size of Hⁱ for the complex shape', ease(seg(p, 0.76, 0.81)));
+      card(660, 360, cw, ch, '4', 'Riemann hypothesis', 'the hardest one  (next)', ease(seg(p, 0.91, 0.96)), p > 0.96);
+    },
+  },
+  {
+    title: 'The Riemann hypothesis',
+    text: "Write each polynomial P sub i as a product of factors, one minus alpha t. The Riemann hypothesis says every such alpha has size exactly the square root of q, raised to the power i. Check it on our curve, where q is seven and i is one: alpha is minus two plus root three i, and its size squared is four plus three, which is seven. So alpha has size root seven. That's the root p bound from last time.",
+    draw(p) {
+      txt('Pᵢ(t) = (1 − α₁t)(1 − α₂t) ⋯', 640, 110, { size: 38, font: MATH, alpha: ease(seg(p, 0.0, 0.07)) });
+      txt('Conjecture 4:  every such α has  |α| = (√q)ⁱ', 640, 195, { size: 36, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.16, 0.23)) });
+      const ca = ease(seg(p, 0.38, 0.44));
+      txt('our curve:  q = 7,  i = 1', 380, 300, { size: 28, font: MATH, color: COL.soft, alpha: ca });
+      txt('α = −2 + √3 i', 380, 365, { size: 32, font: MATH, alpha: ease(seg(p, 0.55, 0.6)) });
+      txt('|α|² = 4 + 3 = 7', 380, 430, { size: 32, font: MATH, alpha: ease(seg(p, 0.66, 0.71)) });
+      txt('|α| = √7  ✓', 380, 500, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.79, 0.84)) });
+      // complex plane: circle of radius √7 through α and ᾱ
+      const CX = 950, CY = 420, S = 46, R = Math.sqrt(P) * S;
+      line(CX - 170, CY, CX + 170, CY, COL.white, 1.2, 0.4 * ca);
+      line(CX, CY - 150, CX, CY + 150, COL.white, 1.2, 0.4 * ca);
+      const ra = ease(seg(p, 0.79, 0.84));
+      ring(CX, CY, R, COL.lav, ra, 2);
+      txt('radius √7', CX + 82, CY - 120, { size: 20, color: COL.lav, align: 'left', alpha: ra });
+      const za = ease(seg(p, 0.55, 0.6));
+      const ax = CX + A / 2 * S, ay = Math.sqrt(4 * P - A * A) / 2 * S;
+      dot(ax, CY - ay, 8, COL.pink, za, 14);
+      dot(ax, CY + ay, 8, COL.pink, za, 14);
+      txt('α', ax - 22, CY - ay - 14, { size: 24, font: MATH, color: COL.pink, alpha: za });
+      txt('ᾱ', ax - 22, CY + ay + 16, { size: 24, font: MATH, color: COL.pink, alpha: za });
+      line(CX, CY, ax, CY - ay, COL.pink, 2, 0.7 * ra);
+      txt('curves:  |α| = √p,  the bound from video 4', 640, 625, { size: 26, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.87, 0.93)) });
+    },
+  },
+  {
+    title: 'Why "Riemann hypothesis"?',
+    text: "Why name it after Riemann? His zeta function is one, plus two to the minus s, plus three to the minus s, and so on. Substitute t equals p to the minus s in ours. The zeros of our zeta function happen where p to the s equals alpha. The size of p to the s is p to the real part of s, and alpha has size root p, so every zero has real part exactly one half. Here they are, marching up the line. The lines at real part zero and one hold the poles, where the bottom of the fraction is zero and the function blows up. That's exactly the original Riemann hypothesis, a million dollar Millennium problem: Riemann's nontrivial zeros, ignoring easy ones at minus two, minus four, and so on, also lie on the line of real part one half. Over finite fields, Weil's version can actually be proved.",
+    draw(p) {
+      txt('Riemann:  ζ(s) = 1 + 2⁻ˢ + 3⁻ˢ + ⋯', 340, 78, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.03, 0.09)) });
+      txt('t = p⁻ˢ :   zeros where  pˢ = α', 340, 132, { size: 28, font: MATH, alpha: ease(seg(p, 0.14, 0.2)) });
+      txt('|pˢ| = p^(Re s)', 340, 186, { size: 28, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.29, 0.34)) });
+      txt('|α| = √p   ⟹   Re s = ½', 340, 242, { size: 32, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.42, 0.47)) });
+      // s-plane
+      const OX = 820, OY = 380, U = 220, V = 34;   // Re → x, Im → y
+      const sx = (re) => OX + U * (re - 0.5), sy = (im) => OY - V * im;
+      const a0 = ease(seg(p, 0.1, 0.18));
+      panel(600, 80, 440, 600, 'the s-plane', a0);
+      line(sx(-0.4), OY, sx(1.4), OY, COL.white, 1.2, 0.4 * a0);
+      const pa = ease(seg(p, 0.53, 0.58));
+      line(sx(0), 120, sx(0), 660, COL.white, 1.2, (0.4 - 0.15 * pa) * a0);
+      line(sx(1), 120, sx(1), 660, COL.white, 1, 0.25 * a0);
+      txt('0', sx(0) - 16, OY + 30, { size: 18, color: COL.dim, alpha: a0 });
+      txt('1', sx(1) + 16, OY + 30, { size: 18, color: COL.dim, alpha: a0 });
+      // poles: t = 1 (Re s = 0) and t = 1/7 (Re s = 1), from (1 − t)(1 − 7t)
+      for (let k = -2; k <= 2; k++) {
+        const im = TAU * k / Math.log(P);
+        for (const re of [0, 1]) {
+          const x = sx(re), y = sy(im);
+          line(x - 7, y - 7, x + 7, y + 7, COL.soft, 2.5, pa);
+          line(x - 7, y + 7, x + 7, y - 7, COL.soft, 2.5, pa);
+        }
+      }
+      txt('× = poles: bottom of the fraction is 0, Z blows up', 340, 382, { size: 20, color: COL.soft, alpha: pa });
+      const la = ease(seg(p, 0.42, 0.47));
+      ctx.save(); ctx.setLineDash([8, 8]);
+      line(sx(0.5), 120, sx(0.5), 660, COL.lav, 2, la);
+      ctx.restore();
+      txt('Re s = ½', sx(0.5), 690 - 20, { size: 20, color: COL.lav, alpha: la });
+      // zeros: s = ½ + i(±θ + 2πk)/ln p
+      const L = Math.log(P);
+      const zs = [];
+      for (let k = -3; k <= 3; k++) for (const sg of [1, -1]) zs.push((sg * THETA + TAU * k) / L);
+      zs.sort((a, b) => Math.abs(a) - Math.abs(b));
+      zs.forEach((im, i) => {
+        if (Math.abs(im) > 8) return;
+        const a = ease(seg(p, 0.48 + i * 0.01, 0.51 + i * 0.01));
+        dot(sx(0.5), sy(im), 8, COL.pink, a, 16);
+      });
+      txt('zeros of our curve', 340, 300, { size: 24, color: COL.pink, alpha: ease(seg(p, 0.48, 0.52)) });
+      txt('all on the line', 340, 338, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.5, 0.54)) });
+      const ra = ease(seg(p, 0.66, 0.71));
+      panel(80, 420, 500, 200, '', ra);
+      txt('Riemann (1859), unsolved:', 330, 460, { size: 22, color: COL.soft, alpha: ra });
+      txt('nontrivial zeros of ζ(s) have Re s = ½', 330, 496, { size: 24, font: MATH, weight: 700, alpha: ra });
+      txt('(ignoring easy zeros at −2, −4, −6, …)', 330, 526, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.8, 0.85)) });
+      txt('a Millennium Prize problem · $1,000,000', 330, 560, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.72, 0.77)) });
+      txt('the finite-field version can be proved', 330, 596, { size: 22, color: COL.pink, weight: 700, alpha: ease(seg(p, 0.92, 0.97)) });
+    },
+  },
+  {
+    title: "Weil's idea",
+    text: "Weil also saw why it should be true. A point mod p is a fixed point of Frobenius. If varieties mod p had a cohomology like the complex one, the Lefschetz formula would turn point counts into traces of Frobenius on each H i. Then the zeta function would be a fraction with one polynomial per cohomology group. For our curve, the determinant of one minus t Frobenius on H one would be exactly one plus four t plus seven t squared, the top of our fraction. That explains conjectures one, two and three at once. The catch: no such cohomology existed. Over each finite field the curve is just a scatter of dots: no continuous loops to draw, no holes to count.",
+    draw(p) {
+      const steps = [
+        ['points mod p', 'fixed points of Frobenius', 0.05],
+        ['Lefschetz', 'Nₙ = Σ (−1)ⁱ tr(Frobⁿ | Hⁱ)', 0.19],
+        ['so', 'Z(t) = Π det(1 − t·Frob | Hⁱ)^(±1)', 0.3],
+        ['for us', 'det(1 − t·Frob | H¹) = 1 + 4t + 7t²', 0.43],
+        ['explains', 'conjectures 1–3: rationality · symmetry · Betti', 0.63],
+      ];
+      steps.forEach(([h, b, at], i) => {
+        const a = ease(seg(p, at, at + 0.06));
+        const y = 90 + i * 88;
+        txt(h, 300, y, { size: 26, color: COL.soft, align: 'right', alpha: a });
+        txt(b, 340, y, { size: 28, font: MATH, align: 'left', alpha: a, color: i === 4 ? COL.lav : i === 3 ? COL.pink : COL.white });
+        if (i < 4) arrow(250, y + 22, 250, y + 64, COL.pink, 2.5, ease(seg(p, steps[i + 1][2] - 0.04, steps[i + 1][2])));
+      });
+      const ca = ease(seg(p, 0.71, 0.76));
+      txt('the catch:  which Hⁱ ?', 640, 560, { size: 38, weight: 700, color: COL.pink, glow: 18, alpha: ca });
+      txt('over each finite field the curve is a scatter of dots: no continuous loops, no holes', 640, 620, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.77, 0.82)) });
+    },
+  },
+  {
+    title: 'The race',
+    text: "So began a twenty-five year race. In nineteen sixty, Dwork proved rationality with p-adic analysis. In the sixties, Grothendieck and his school built étale cohomology, exactly the cohomology Weil wanted, and with it proved the first three conjectures. The Riemann hypothesis held out until nineteen seventy-four, when Deligne, Grothendieck's student, proved it, and won the Fields Medal. The next videos follow the same path: Frobenius and Lefschetz up close, then étale cohomology, then Deligne's proof.",
+    draw(p) {
+      const X0 = 140, X1 = 1140, Y = 330;
+      const yr = (y) => X0 + (X1 - X0) * (y - 1945) / (1980 - 1945);
+      const a0 = ease(seg(p, 0.02, 0.1));
+      line(X0, Y, X1, Y, COL.pink, 2, 0.6 * a0);
+      const ev = [
+        [1949, 'Weil', 'states the conjectures', 0.04, -1],
+        [1960, 'Dwork', 'rationality (p-adic)', 0.14, 1],
+        [1964, 'Grothendieck', 'étale cohomology: 1, 2, 3', 0.3, -1],
+        [1974, 'Deligne', 'Riemann hypothesis', 0.5, 1],
+      ];
+      for (const [y, who, what, at, side] of ev) {
+        const a = ease(seg(p, at, at + 0.06));
+        const x = yr(y), hot = who === 'Deligne';
+        dot(x, Y, hot ? 11 : 8, COL.pink, a, hot ? 20 : 10);
+        line(x, Y, x, Y + side * 60, COL.pink, 1.5, 0.6 * a);
+        txt(String(y), x, Y - side * 26, { size: 20, color: COL.dim, alpha: a });
+        txt(who, x, Y + side * 85, { size: 28, weight: 700, color: hot ? COL.pink : COL.white, alpha: a });
+        txt(what, x, Y + side * 120, { size: 20, color: COL.soft, alpha: a });
+      }
+      txt('Fields Medal, 1978', yr(1974), Y + 160, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.58, 0.64)) });
+      const na = ease(seg(p, 0.7, 0.78));
+      txt('next:', 260, 610, { size: 24, color: COL.dim, alpha: na });
+      ['6 · Frobenius & Lefschetz', '7 · étale cohomology', '8 · Deligne’s proof'].forEach((s, i) =>
+        txt(s, 470 + i * 300, 610, { size: 24, weight: 700, color: i === 0 ? COL.pink : COL.soft, alpha: ease(seg(p, 0.74 + i * 0.05, 0.8 + i * 0.05)) }));
+    },
+  },
+];
+
+startVideo({ title: 'The Weil conjectures', scenes });
+</script>
+</body>
+</html>

@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deligne's Proof</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── helpers ─────────────────────────────
+const range = (N, f) => Array.from({ length: N + 1 }, (_, k) => f(k / N));
+const mod1 = (x) => ((x % 1) + 1) % 1;
+const isPrime = (n) => { if (n < 2) return false; for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
+
+// Ramanujan's τ(n):  Δ = x ∏ (1 − xⁿ)²⁴ = Σ τ(n) xⁿ   (BigInt, computed once)
+let TAU_CACHE = null;
+function tauList(N = 300) {
+  if (TAU_CACHE) return TAU_CACHE;
+  const c = Array(N + 1).fill(0n); c[0] = 1n;
+  for (let n = 1; n <= N; n++) for (let r = 0; r < 24; r++) for (let k = N; k >= n; k--) c[k] -= c[k - n];
+  TAU_CACHE = [0n, ...c.slice(0, N)];   // τ(n) = coefficient of xⁿ⁻¹ in ∏
+  return TAU_CACHE;
+}
+
+// Horizontal "size" axis for log_q|α|, used in the duality and product scenes.
+function axis(x0, x1, y, lo, hi, ticks, a) {
+  const X = (w) => x0 + (x1 - x0) * (w - lo) / (hi - lo);
+  line(x0, y, x1, y, COL.white, 2, 0.6 * a);
+  for (const [w, lab] of ticks) {
+    line(X(w), y - 8, X(w), y + 8, COL.white, 2, 0.6 * a);
+    txt(lab, X(w), y + 32, { size: 24, font: MATH, color: COL.soft, alpha: a });
+  }
+  return X;
+}
+function band(X, w0, w1, y, h, color, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = color;
+  ctx.fillRect(X(w0), y - h / 2, X(w1) - X(w0), h); ctx.restore();
+}
+function box(x, y, w, h, s, a, hot = false, size = 20) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.fillStyle = hot ? 'rgba(255,79,163,0.18)' : 'rgba(255,79,163,0.06)';
+  ctx.strokeStyle = hot ? COL.pink : 'rgba(255,79,163,0.45)'; ctx.lineWidth = hot ? 2.5 : 1.5;
+  if (hot) { ctx.shadowColor = COL.pink; ctx.shadowBlur = 16; }
+  rr(x - w / 2, y - h / 2, w, h, 12); ctx.fill(); ctx.stroke(); ctx.restore();
+  txt(s, x, y, { size, weight: hot ? 700 : 500, color: hot ? COL.white : COL.soft, alpha: a });
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "One conjecture left: the Riemann hypothesis. Every eigenvalue alpha of Frobenius on the cohomology in degree i should have size exactly q to the power i over two. In nineteen seventy-four, Pierre Deligne, then twenty-nine, proved it in a paper titled The Weil Conjecture, part one. The proof is famously short for what it does, about thirty pages, and it rests on four ideas. Duality, a product trick, slicing, and positivity. Let's take them one at a time. This is a simplified tour, but every idea in it is really in the proof.",
+    draw(p) {
+      txt('Deligne’s proof', 640, 90, { size: 60, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      txt('Riemann hypothesis:   |α| = q^(i/2)   for every α on Hⁱ', 640, 170, { size: 30, font: MATH, alpha: ease(seg(p, 0.06, 0.14)) });
+      txt('“La conjecture de Weil I”, 1974 · about 30 pages', 640, 225, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.2, 0.28)) });
+      const ideas = [['1', 'Duality', 'half is enough'], ['2', 'A product trick', 'weak → sharp'], ['3', 'Slicing', 'pencils & twists'], ['4', 'Positivity', 'no cancellation']];
+      ideas.forEach(([n, h, s], i) => {
+        const a = ease(seg(p, 0.44 + i * 0.07, 0.5 + i * 0.07));
+        const x = 190 + i * 300;
+        panel(x - 130, 300, 260, 200, '', a);
+        txt(n, x, 345, { size: 34, weight: 800, color: COL.pink, glow: 12, alpha: a });
+        txt(h, x, 405, { size: 26, weight: 700, alpha: a });
+        txt(s, x, 450, { size: 20, color: COL.soft, alpha: a });
+      });
+      txt('a simplified tour, but every idea is really in the proof', 640, 600, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.84, 0.9)) });
+    },
+  },
+  {
+    title: 'Half is enough',
+    text: "Idea one: you only need half. Take a curve, where the eigenvalues on H one should have size root q. Plot the size of alpha on a scale where root q sits at one half. Suppose we prove an upper bound: alpha is at most root q. That shades everything to the left. Now use Poincaré duality, the mirror symmetry from the Weil conjectures. It says q over alpha is also an eigenvalue. Applying the same upper bound to q over alpha forces alpha to be at least root q. The two shaded regions meet in a single point. In any dimension, it works the same way: an upper bound in every degree is enough.",
+    draw(p) {
+      const a0 = ease(seg(p, 0.08, 0.16));
+      txt('curves:  α on H¹', 640, 110, { size: 30, font: MATH, alpha: a0 });
+      const X = axis(200, 1080, 360, 0, 1, [[0, '|α| = 1'], [0.5, '√q'], [1, 'q']], a0);
+      txt('size of α  (log scale)', 640, 440, { size: 20, color: COL.dim, alpha: a0 });
+      const ua = ease(seg(p, 0.3, 0.38));
+      band(X, 0, 0.5, 360, 60, 'rgba(255,79,163,0.35)', ua);
+      txt('upper bound:  |α| ≤ √q', X(0.25), 290, { size: 24, font: MATH, color: COL.pink, alpha: ua });
+      const da = ease(seg(p, 0.52, 0.6));
+      band(X, 0.5, 1, 360, 60, 'rgba(201,162,255,0.35)', da);
+      txt('duality:  q/α too  ⟹  |α| ≥ √q', X(0.75), 290, { size: 24, font: MATH, color: COL.lav, alpha: da });
+      const ma = ease(seg(p, 0.68, 0.74));
+      dot(X(0.5), 360, 14, COL.white, ma, 24);
+      txt('|α| = √q', X(0.5), 520, { size: 40, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ma });
+      txt('in general:  Hⁱ ↔ H²ᵈ⁻ⁱ,   α ↔ qᵈ/α', 640, 610, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.82, 0.88)) });
+    },
+  },
+  {
+    title: 'The product trick',
+    text: "Idea two: a weak bound becomes a sharp one. Suppose all you can prove is a sloppy bound, off by an extra square root of q: the size of alpha is at most q to the i over two, times an extra root q. Now apply that same sloppy bound to X times X times X, k copies. Cohomology of a product multiplies, by the Künneth formula, so alpha times alpha times alpha, k times over, is an eigenvalue there, in degree k times i. So alpha to the k is at most q to the k i over two, times one extra root q. Take the k-th root: the error is now one over two k. Since k can be as large as you like, the error shrinks to nothing. A fixed sloppiness, spread over k copies, gets crushed.",
+    draw(p, t, dur) {
+      const lines = [
+        ['weak bound:', '|α| ≤ q^(i/2 + 1/2)', 0.06],
+        ['on Xᵏ = X × ⋯ × X  (Künneth):', 'α · α · ⋯ · α = αᵏ  on Hᵏⁱ(Xᵏ)', 0.42],
+        ['weak bound there:', '|α|ᵏ ≤ q^(ki/2 + 1/2)', 0.58],
+        ['k-th root:', '|α| ≤ q^(i/2 + 1/(2k))', 0.72],
+      ];
+      lines.forEach(([l, r, at], i) => {
+        const a = ease(seg(p, at, at + 0.05)), y = 100 + i * 60;
+        txt(l, 560, y, { size: 24, color: COL.soft, align: 'right', alpha: a });
+        txt(r, 585, y, { size: 30, font: MATH, align: 'left', alpha: a, color: i === 3 ? COL.pink : COL.white });
+      });
+      // the shrinking error
+      const a0 = ease(seg(p, 0.76, 0.8));
+      const X = axis(240, 1040, 470, 0.4, 1.05, [[0.5, 'i/2'], [1, 'i/2 + ½']], a0);
+      const kk = p < 0.8 ? 1 : Math.max(1, Math.round(Math.pow(2, Math.min(8, (p - 0.8) / 0.14 * 8))));
+      band(X, 0.5, 0.5 + 0.5 / kk, 470, 50, 'rgba(255,79,163,0.45)', a0);
+      dot(X(0.5 + 0.5 / kk), 470, 9, COL.pink, a0, 16);
+      txt(`k = ${kk}`, 640, 550, { size: 36, font: MATH, weight: 700, color: COL.lav, alpha: a0 });
+      txt(`error = 1/(2k) = ${(0.5 / kk).toFixed(kk > 16 ? 4 : 3)}`, 640, 600, { size: 24, font: MATH, color: COL.soft, alpha: a0 });
+      txt('k → ∞:   |α| ≤ q^(i/2)', 640, 660, { size: 30, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.92, 0.96)) });
+    },
+  },
+  {
+    title: 'Slicing',
+    text: "So we need any weak bound. Idea three: slice. Deligne cuts X with a moving family of hyperplanes, called a Lefschetz pencil. Each slice, or fiber, is a smaller variety, one dimension down, and the fibers form a family over a line. Watch it for a torus. This picture uses real numbers; the actual slices are complex curves. Most slices are one or two smooth circles. But at a few special heights, a loop pinches down to a point. That's a vanishing cycle. All the interesting behavior of the family is concentrated at those few bad fibers, and the smaller dimension lets you set up an induction.",
+    draw(p, t, dur) {
+      const C = [380, 365], R = 190, r = 77;
+      const a0 = ease(seg(p, 0.08, 0.16));
+      // annulus (a torus seen head-on)
+      if (a0 > 0) {
+        ctx.save(); ctx.globalAlpha = a0 * 0.35; ctx.fillStyle = COL.pink;
+        ctx.beginPath(); ctx.arc(...C, R, 0, TAU); ctx.arc(...C, r, 0, TAU, true); ctx.fill(); ctx.restore();
+        ring(...C, R, COL.pink, a0, 2); ring(...C, r, COL.pink, a0, 2);
+      }
+      txt('this picture uses real numbers; the actual slices are complex', C[0], C[1] - R - 40, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.42, 0.48)) });
+      // sweeping slice: rise from below, hold at the pinch height while it is narrated, then sweep on
+      let h;
+      if (p < 0.3) h = -1.05 * R;
+      else if (p < 0.62) h = lerp(-1.05 * R, r, ease(seg(p, 0.3, 0.62)));
+      else if (p < 0.84) h = r;
+      else h = r + (1.05 * R - r) * Math.sin(seg(p, 0.84, 1) * Math.PI * 1.5);
+      const sa = ease(seg(p, 0.24, 0.3));
+      line(C[0] - R - 60, C[1] - h, C[0] + R + 60, C[1] - h, COL.lav, 2.5, sa);
+      txt('slice', C[0] + R + 90, C[1] - h, { size: 18, color: COL.lav, alpha: sa });
+      // critical heights
+      const ca = ease(seg(p, 0.62, 0.68));
+      for (const y of [R, r, -r, -R]) txt('×', C[0] - R - 80, C[1] - y, { size: 22, weight: 700, color: COL.pink, alpha: ca });
+      txt('bad slices', C[0] - R - 80, C[1] + R + 40, { size: 18, color: COL.pink, alpha: ca });
+      // the fiber
+      const fa = ease(seg(p, 0.3, 0.36));
+      panel(820, 220, 380, 300, 'the fiber', fa);
+      const FX = 1010, FY = 390;
+      const H = Math.abs(h);
+      let label = '';
+      if (H < R) {
+        const wo = Math.sqrt(R * R - H * H) * 0.8;
+        const ell = (cx, rad) => { ctx.save(); ctx.globalAlpha = fa; ctx.strokeStyle = COL.lav; ctx.lineWidth = 4; ctx.shadowColor = COL.lav; ctx.shadowBlur = 10; ctx.beginPath(); ctx.ellipse(cx, FY, Math.max(1, rad), Math.max(1, rad * 0.5), 0, 0, TAU); ctx.stroke(); ctx.restore(); };
+        if (Math.abs(H - r) < 10) {
+          // figure eight: two loops touching at the pinch point
+          ell(FX - wo / 2, wo / 2); ell(FX + wo / 2, wo / 2);
+          dot(FX, FY, 10, COL.pink, fa, 20); label = 'pinch! a vanishing cycle';
+        } else if (H < r) {
+          const wi = Math.sqrt(r * r - H * H) * 0.8;
+          ell(FX - (wo + wi) / 2, (wo - wi) / 2); ell(FX + (wo + wi) / 2, (wo - wi) / 2);
+          label = 'two circles';
+        } else { ell(FX, wo); label = 'one circle'; }
+        if (R - H < 12) label = 'a point';
+      } else label = 'empty';
+      txt(label, FX, 490, { size: 22, weight: 700, color: label.startsWith('pinch') ? COL.pink : COL.soft, alpha: fa });
+      txt('Lefschetz pencil: X → a line, fibers one dimension smaller', 640, 625, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.8, 0.86)) });
+    },
+  },
+  {
+    title: 'Twisting',
+    text: "Now walk the slicing parameter around one of the bad points, and come back. The fiber returns to itself, but twisted. Watch a loop on the fiber. Each lap around the bad point shears it by the vanishing cycle: gamma becomes gamma plus delta. That's the Picard–Lefschetz formula, and this twisting is called monodromy. With many bad points you get many twists, and a theorem of Kazhdan and Margulis says the twists generate essentially every symmetry that preserves how loops cross each other. That's big monodromy. Almost no loop on the fiber survives every twist unchanged, and that is what lets Deligne compute the averages exactly.",
+    draw(p, t, dur) {
+      // base line with bad points
+      const a0 = ease(seg(p, 0.04, 0.1));
+      line(100, 600, 640, 600, COL.white, 2, 0.5 * a0);
+      txt('the line of slices t', 370, 672, { size: 20, color: COL.dim, alpha: a0 });
+      const bad = [180, 300, 430, 560];
+      for (const x of bad) txt('×', x, 600, { size: 26, weight: 700, color: COL.pink, alpha: a0 });
+      // a loop around bad[1]
+      const la = ease(seg(p, 0.12, 0.18));
+      const lap = p < 0.18 ? 0 : Math.min(2, (t - 0.18 * dur) * 0.12);
+      ring(bad[1], 600, 45, COL.lav, 0.5 * la, 1.5);
+      dot(bad[1] + 45 * Math.cos(lap * TAU), 600 - 45 * Math.sin(lap * TAU), 8, COL.lav, la, 14);
+      // the fiber: a square torus; δ vertical, γ sheared by the number of laps
+      const S0 = [780, 140], SZ = 360, sq = (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+      const fa = ease(seg(p, 0.1, 0.16));
+      if (fa > 0) { ctx.save(); ctx.globalAlpha = fa; ctx.fillStyle = 'rgba(255,79,163,0.1)'; ctx.strokeStyle = 'rgba(255,79,163,0.6)'; ctx.lineWidth = 2; ctx.fillRect(S0[0], S0[1], SZ, SZ); ctx.strokeRect(S0[0], S0[1], SZ, SZ); ctx.restore(); }
+      polyline([sq(0.5, 0), sq(0.5, 1)], COL.pink, 4, fa, 10);
+      txt('δ  (vanishing cycle)', sq(0.5, 1)[0], S0[1] - 22, { size: 20, color: COL.pink, alpha: fa });
+      const shear = p < 0.18 ? 0 : Math.min(2, lap);
+      const k = Math.floor(shear), fr = ease(shear - k), s = Math.min(2, k + fr);
+      // γ = horizontal loop + s·δ, drawn wrapping on the square
+      let seg0 = [];
+      const segs = [];
+      for (let i = 0; i <= 200; i++) {
+        const u = i / 200, v = 0.3 + s * u, vv = mod1(v);
+        if (seg0.length && Math.abs(vv - seg0[seg0.length - 1][2]) > 0.5) { segs.push(seg0); seg0 = []; }
+        seg0.push([...sq(u, vv), vv]);
+      }
+      segs.push(seg0);
+      for (const sgm of segs) polyline(sgm.map(([x, y]) => [x, y]), COL.lav, 4, fa, 10);
+      const laps = Math.min(2, Math.floor(shear + 0.001));
+      txt(laps === 0 ? 'γ' : laps === 1 ? 'γ + δ' : 'γ + 2δ', sq(1, 0)[0] + 50, sq(0, 0.3)[1], { size: 26, font: MATH, color: COL.lav, alpha: fa });
+      txt(`laps: ${laps}`, 960, 560, { size: 22, color: COL.soft, alpha: fa });
+      txt('Picard–Lefschetz:   γ ↦ γ ± ⟨γ, δ⟩ δ', 370, 150, { size: 28, font: MATH, alpha: ease(seg(p, 0.4, 0.45)) });
+      txt('= monodromy', 370, 200, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.45, 0.5)) });
+      txt('many bad points → many twists', 370, 270, { size: 24, alpha: ease(seg(p, 0.49, 0.54)) });
+      txt('Kazhdan–Margulis: they generate every', 370, 320, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.58, 0.63)) });
+      txt('symmetry that preserves how loops cross', 370, 352, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.58, 0.63)) });
+      txt('big monodromy', 370, 415, { size: 36, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.74, 0.78)) });
+      txt('almost no loop survives every twist unchanged', 370, 470, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.77, 0.82)) });
+      txt('→ Deligne can compute the averages exactly', 370, 505, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.86, 0.9)) });
+    },
+  },
+  {
+    title: 'Positivity',
+    text: "Idea four is positivity, a trick Deligne borrowed from Robert Rankin, who used it in nineteen thirty-nine on Ramanujan's tau function. When numbers have signs, big terms can cancel, and a sum can hide how large its pieces are. But if every term is positive, nothing cancels: the total is bigger than every piece. The traces of Frobenius on the fibers are real numbers. That's because the eigenvalues are roots of polynomials with rational coefficients, so complex ones come in conjugate pairs and the imaginary parts cancel. So raised to an even power, two times m, they are never negative. Build the zeta-like function from those even powers, and all its coefficients are positive.",
+    draw(p) {
+      // signed vs positive bars
+      const la = ease(seg(p, 0.18, 0.24)), ra = ease(seg(p, 0.33, 0.39));
+      const vals = [5, -4, 3, -5, 4, -3];
+      panel(80, 110, 520, 250, 'with signs: terms cancel', la);
+      panel(680, 110, 520, 250, 'all ≥ 0: nothing hides', ra);
+      vals.forEach((v, i) => {
+        const x = 140 + i * 70;
+        ctx.save(); ctx.globalAlpha = la; ctx.fillStyle = v > 0 ? COL.pink : COL.lav;
+        ctx.fillRect(x, 245 - Math.max(0, v) * 18, 40, Math.abs(v) * 18); ctx.restore();
+        const x2 = 740 + i * 70, w = v * v * 0.9;
+        ctx.save(); ctx.globalAlpha = ra; ctx.fillStyle = COL.pink;
+        ctx.fillRect(x2, 335 - w * 8, 40, w * 8); ctx.restore();
+      });
+      line(120, 245, 560, 245, COL.white, 1, 0.5 * la);
+      txt('sum = 0', 530, 140, { size: 22, font: MATH, color: COL.soft, alpha: la });
+      txt('(squares)', 1060, 140, { size: 18, color: COL.dim, alpha: ra });
+      const chain = [
+        ['traces of Frobenius on the fibers are real numbers', 0.47, SANS, 24, COL.white],
+        ['(eigenvalues: roots of rational polynomials → conjugate pairs, imaginary parts cancel)', 0.56, SANS, 18, COL.lav],
+        ['(trace)²ᵐ ≥ 0', 0.75, MATH, 30, COL.white],
+        ['zeta-like function built from them: all coefficients ≥ 0', 0.85, SANS, 26, COL.pink],
+      ];
+      chain.forEach(([s, at, font, size, color], i) => txt(s, 640, [420, 462, 525, 585][i], { size, font, weight: i === 3 ? 700 : 400, color, alpha: ease(seg(p, at, at + 0.05)) }));
+      txt('Rankin, 1939 (Ramanujan’s τ)', 640, 650, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.06, 0.12)) });
+    },
+  },
+  {
+    title: 'The first blow-up',
+    text: "Why does that help? If a power series has all positive coefficients, its first blow-up point controls every term. Each alpha, raised to the power two m, contributes a term like one over one minus that number times T, which blows up at one over alpha to the power two m. With no cancellation, nothing can hide that blow-up, so no alpha can be bigger than the first blow-up point allows. Big monodromy pins down exactly where that first blow-up is. Out comes: alpha to the power two m is at most q to the m i, times one extra q. Take roots, let m grow, and the fibers obey the sharp bound.",
+    draw(p) {
+      // graph of the zeta-like function Z(T) (all coefficients ≥ 0) and one α-term
+      const G = { x0: 140, x1: 1140, y0: 390, y1: 110 }, TMAX = 1, YMAX = 8;
+      const gx = (T) => G.x0 + (G.x1 - G.x0) * T / TMAX;
+      const gy = (v) => G.y0 - (G.y0 - G.y1) * Math.min(v, YMAX) / YMAX;
+      const a0 = ease(seg(p, 0.04, 0.1));
+      line(G.x0, G.y0, G.x1 + 20, G.y0, COL.white, 2, 0.6 * a0);
+      line(G.x0, G.y0, G.x0, G.y1 - 10, COL.white, 2, 0.6 * a0);
+      txt('T', G.x1 + 40, G.y0, { size: 24, font: MATH, color: COL.soft, alpha: a0 });
+      const curve = (pole, color, a, w = 4) => {
+        if (a <= 0) return;
+        const pts = range(240, (u) => u * pole * 0.995).map((T) => [gx(T), gy(1 / (1 - T / pole))]).filter(([, y]) => y >= G.y1);
+        polyline(pts, color, w, a, 10);
+        ctx.save(); ctx.globalAlpha = 0.6 * a; ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([6, 6]);
+        ctx.beginPath(); ctx.moveTo(gx(pole), G.y0); ctx.lineTo(gx(pole), G.y1 - 10); ctx.stroke(); ctx.restore();
+      };
+      // the whole series: first blow-up at T₀
+      const T0 = 0.55;
+      const za = ease(seg(p, 0.04, 0.12));
+      curve(T0, COL.pink, za);
+      txt('positive coefficients: first blow-up', gx(T0) - 12, G.y1 - 30, { size: 20, color: COL.pink, align: 'right', alpha: za });
+      // one α-term 1/(1 − α²ᵐT), pole at 1/α²ᵐ — an honest one (beyond T₀) and a would-be cheater (before T₀)
+      const ta = ease(seg(p, 0.2, 0.26));
+      curve(0.8, COL.lav, ta, 3);
+      txt('1/(1 − α²ᵐT)', gx(0.8) + 10, gy(5.5), { size: 22, font: MATH, color: COL.lav, align: 'left', alpha: ta });
+      txt('blows up at T = 1/α²ᵐ', gx(0.8), G.y0 + 26, { size: 20, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.33, 0.38)) });
+      txt('sizes only:  |T| = 1/|α|²ᵐ', gx(0.8), G.y0 + 54, { size: 18, font: MATH, color: COL.dim, alpha: ease(seg(p, 0.33, 0.38)) });
+      const ca = ease(seg(p, 0.43, 0.49)) * (1 - 0.6 * ease(seg(p, 0.56, 0.6)));
+      curve(0.3, COL.dim, ca, 3);
+      if (ca > 0) {
+        txt('✕', gx(0.3), gy(4), { size: 44, weight: 700, color: COL.pink, alpha: ca });
+        txt('a too-big α would blow up first: impossible', gx(0.3), G.y0 + 26, { size: 18, color: COL.soft, alpha: ca });
+      }
+      txt('T₀', gx(T0), G.y0 + 26, { size: 20, font: MATH, color: COL.pink, alpha: za });
+      // the conclusion
+      const chain = [
+        ['big monodromy:  T₀ = q^−(mi + 1)  exactly', 0.6, COL.white, 26],
+        ['so  1/|α|²ᵐ ≥ T₀:     |α|²ᵐ ≤ q^(mi + 1)', 0.69, COL.white, 28],
+        ['take roots:   |α| ≤ q^(i/2 + 1/(2m))   →   q^(i/2)  as m grows', 0.86, COL.pink, 28],
+      ];
+      chain.forEach(([s, at, color, size], i) => txt(s, 640, 490 + i * 58, { size, font: MATH, weight: i === 2 ? 700 : 400, color, glow: i === 2 ? 14 : 0, alpha: ease(seg(p, at, at + 0.05)) }));
+    },
+  },
+  {
+    title: 'Putting it together',
+    text: "Now assemble the machine. Slice X with a Lefschetz pencil. Kazhdan and Margulis give big monodromy on the fibers. Rankin-style positivity turns that into a sharp bound on the fibers. But X's degree i cohomology comes from fiber cohomology in degree i minus one, a factor root q smaller, but sweeping it over the line costs a full factor of q. Net: off by root q. That's the weak bound. The product trick, with X to the k, removes that error. Duality turns the upper bound into an equality. Every alpha has size exactly q to the power i over two. The last Weil conjecture, proved. Deligne got the Fields Medal for it in nineteen seventy-eight.",
+    draw(p) {
+      const steps = [
+        ['Lefschetz pencil: slice X', 0.03],
+        ['big monodromy (Kazhdan–Margulis)', 0.09],
+        ['positivity (Rankin): sharp bound on fibers', 0.16],
+        ['back to X: weak bound  |α| ≤ q^(i/2 + 1/2)', 0.52],
+        ['product trick on Xᵏ:  |α| ≤ q^(i/2)', 0.58],
+        ['duality:  |α| = q^(i/2)', 0.67],
+      ];
+      steps.forEach(([s, at], i) => {
+        const a = ease(seg(p, at, at + 0.06)), y = 90 + i * 82;
+        box(600, y, 600, 56, s, a, i === steps.length - 1, 22);
+        if (i) arrow(600, y - 54, 600, y - 30, COL.pink, 2.5, a);
+      });
+      // why X only gets the weak bound
+      const ny = 90 + 3 * 82;
+      txt('fibers, degree i−1:  q^((i−1)/2)', 1090, ny - 38, { size: 20, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.25, 0.3)) });
+      txt('sweep over the line:  × q', 1090, ny - 8, { size: 20, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.4, 0.45)) });
+      txt('q^((i−1)/2) · q = q^(i/2 + 1/2)', 1090, ny + 24, { size: 20, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.5, 0.55)) });
+      const fa = ease(seg(p, 0.8, 0.86));
+      txt('Weil conjectures: all four proved ✓', 640, 600 + 25, { size: 32, weight: 700, color: COL.pink, glow: 20, alpha: fa });
+      txt('Fields Medal, 1978', 640, 670, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.88, 0.93)) });
+    },
+  },
+  {
+    title: "Ramanujan's bonus",
+    text: "And a bonus. In nineteen sixteen, Ramanujan studied the coefficients of this infinite product, called tau of n: one, minus twenty-four, two hundred fifty-two, and so on. He guessed that the size of tau of p is at most two times p to the eleven halves. Compare the Hasse bound for our curves: Hasse says two root p; Ramanujan says two times root p to the eleventh power. Deligne had already shown in the late sixties that tau of p is a trace of Frobenius on the cohomology of a certain variety. So his proof settled Ramanujan's conjecture too. Here are the primes up to three hundred, scaled. Every one stays inside the lines, just like our elliptic curve did.",
+    draw(p) {
+      txt('Δ = x ∏ (1 − xⁿ)²⁴ = Σ τ(n) xⁿ', 640, 80, { size: 32, font: MATH, alpha: ease(seg(p, 0.03, 0.1)) });
+      const T = tauList();
+      txt(`τ: ${[1, 2, 3, 4, 5, 6].map((n) => String(T[n]).replace('-', '−')).join(',  ')}, …`, 640, 130, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.15, 0.2)) });
+      txt('Ramanujan 1916:   |τ(p)| ≤ 2 p^(11/2)', 640, 180, { size: 28, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.22, 0.28)) });
+      txt('Hasse:  2√p        Ramanujan:  2 (√p)¹¹', 640, 225, { size: 24, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.4, 0.46)) });
+      const X0 = 130, X1 = 1150, YC = 430, K = 160;
+      const px = (q) => X0 + (X1 - X0) * q / 300;
+      const a0 = ease(seg(p, 0.79, 0.83));
+      line(X0, YC, X1, YC, COL.white, 1, 0.4 * a0);
+      line(X0, YC - K, X1, YC - K, COL.lav, 2.5, a0);
+      line(X0, YC + K, X1, YC + K, COL.lav, 2.5, a0);
+      txt('+1', X0 - 30, YC - K, { size: 20, font: MATH, color: COL.lav, alpha: a0 });
+      txt('−1', X0 - 30, YC + K, { size: 20, font: MATH, color: COL.lav, alpha: a0 });
+      txt('τ(p) / 2p^(11/2)', X0 + 90, YC - K - 26, { size: 20, font: MATH, color: COL.soft, alpha: a0 });
+      txt('p → 300', X1 - 30, YC + K + 30, { size: 18, color: COL.dim, alpha: a0 });
+      const upto = 300 * ease(seg(p, 0.86, 0.95));
+      for (let q = 2; q <= upto; q++) if (isPrime(q)) {
+        const v = Number(T[q]) / (2 * Math.pow(q, 5.5));
+        dot(px(q), YC - K * v, 5, COL.pink, 1, 10);
+      }
+      txt('proved by Deligne’s theorem', 640, 665, { size: 26, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.74, 0.8)) });
+    },
+  },
+  {
+    title: 'Full circle',
+    text: "That's the whole road. A curve over the complex numbers is a torus. Homology and cohomology count its loops: two of them. Counting points mod p gives p plus one, give or take something controlled by that two. The zeta function packages the counts, and Weil saw cohomology inside it. Frobenius and Lefschetz explain why. Grothendieck built the cohomology that makes it real, and Deligne proved the last, hardest piece. For our little curve mod seven, alpha is minus two plus i times root three, and its size is exactly root seven. Now you know why.",
+    draw(p, t) {
+      const st = COURSE.map((c) => c.title.replace(/:.*/, ''));
+      const N = st.length;
+      const pos = (i) => [130 + i * (1020 / (N - 1)), 200 + (i % 2 ? 70 : 0)];
+      const go = ease(seg(p, 0.06, 0.66)) * (N - 1);
+      for (let i = 0; i < N; i++) {
+        const a = ease(seg(go, i - 0.4, i));
+        const [x, y] = pos(i);
+        if (i) line(...pos(i - 1), x, y, COL.pink, 2, 0.5 * a);
+        dot(x, y, 12, i <= go ? COL.pink : COL.dim, Math.max(0.25, a), i <= go ? 14 : 0);
+        txt(String(i + 1), x, y, { size: 13, weight: 700, color: COL.bg, alpha: Math.max(0.25, a) });
+        txt(st[i], x, y + (i % 2 ? 36 : -36), { size: 16, color: COL.soft, alpha: a });
+      }
+      const fa = ease(seg(p, 0.72, 0.8));
+      txt('our curve mod 7:   α = −2 + i√3', 640, 420, { size: 34, font: MATH, alpha: fa });
+      txt('|α|² = 4 + 3 = 7   ⟹   |α| = √7', 640, 480, { size: 34, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.8, 0.86)) });
+      txt('now you know why.', 640, 590, { size: 40, weight: 700, color: COL.pink, glow: 24, alpha: ease(seg(p, 0.92, 0.97)) });
+    },
+  },
+];
+
+startVideo({ title: 'Deligne’s proof', scenes });
+</script>
+</body>
+</html>

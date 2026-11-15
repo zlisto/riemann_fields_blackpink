@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Measuring Loops</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── scene art ─────────────────────────────
+const range = (N, f) => Array.from({ length: N + 1 }, (_, k) => f(k / N));
+const mod1 = (x) => ((x % 1) + 1) % 1;
+const LOOPC = '#ffd6ec';                 // light pink: loops being measured
+const sway = (t, base) => base + 0.35 * Math.sin(t * 0.35);
+
+// The plane with a hole, used in the first scenes.
+const HC = [460, 370], HR = 42;
+const RAY = [[HC[0] + HR, HC[1]], [800, HC[1]]];
+function hole(a) {
+  dot(...HC, HR, COL.bg, a);
+  ring(...HC, HR, COL.pink, 0.7 * a, 2);
+  txt('hole', HC[0], HC[1], { size: 17, color: COL.dim, alpha: a });
+}
+// A loop around (cx, cy), counterclockwise on screen, starting at the top.
+// rFn(θ) gives the radius; turns = how many times it goes around.
+function loopPts(cx, cy, rFn, turns = 1, N = 240) {
+  return range(N, (s) => {
+    const th = Math.PI / 2 + TAU * turns * s;
+    const r = typeof rFn === 'number' ? rFn : rFn(th);
+    return [cx + r * Math.cos(th), cy - r * Math.sin(th)];
+  });
+}
+// Signed crossings of a loop with a wall (both polylines). +1 when the loop crosses
+// the wall from its right side to its left (counterclockwise around the hole for RAY).
+function crossings(loop, wall) {
+  const ev = [];
+  for (let i = 0; i + 1 < loop.length; i++) {
+    const p = loop[i], r = [loop[i + 1][0] - p[0], loop[i + 1][1] - p[1]];
+    for (let j = 0; j + 1 < wall.length; j++) {
+      const q = wall[j], s = [wall[j + 1][0] - q[0], wall[j + 1][1] - q[1]];
+      const den = r[0] * s[1] - r[1] * s[0];
+      if (Math.abs(den) < 1e-9) continue;
+      const qp = [q[0] - p[0], q[1] - p[1]];
+      const t = (qp[0] * s[1] - qp[1] * s[0]) / den;
+      const u = (qp[0] * r[1] - qp[1] * r[0]) / den;
+      if (t >= 0 && t < 1 && u >= 0 && u < 1) {
+        ev.push({ i, x: p[0] + t * r[0], y: p[1] + t * r[1], sign: -Math.sign(s[0] * r[1] - s[1] * r[0]) });
+      }
+    }
+  }
+  return ev;
+}
+// Draw a loop traced up to fraction q, with a moving head and flashes at crossings.
+function traceWithCount(loop, events, q, color, a = 1) {
+  const n = Math.floor(q * (loop.length - 1));
+  polyline(loop.slice(0, n + 1), color, 4, a, 10);
+  if (q > 0 && q < 1) dot(...loop[n], 8, color, a, 14);
+  const seen = events.filter((e) => e.i < n);
+  for (const e of seen) {
+    const age = (n - e.i) / loop.length;
+    if (age < 0.12 && q < 1) {
+      ring(e.x, e.y, 10 + 140 * age, e.sign > 0 ? COL.pink : COL.lav, (1 - age / 0.12) * a, 3);
+      txt(e.sign > 0 ? '+1' : '−1', e.x + 22, e.y - 22, { size: 22, weight: 700, color: e.sign > 0 ? COL.pink : COL.lav, alpha: (1 - age / 0.12) * a });
+    }
+  }
+  return seen;
+}
+const tally = (seen) => {
+  if (!seen.length) return '0';
+  const total = seen.reduce((n, e) => n + e.sign, 0);
+  return seen.length === 1 ? String(total) : `${seen.map((e) => (e.sign > 0 ? '+1' : '−1')).join(' ')} = ${String(total).replace('-', '−')}`;
+};
+function dashed(pts, c, w, a, dash = [10, 8]) {
+  if (a <= 0) return;
+  ctx.save();
+  ctx.setLineDash(dash);
+  polyline(pts, c, w, a, 8);
+  ctx.restore();
+}
+
+// The glued square, in screen space.
+function square(S0, SZ, a, fillA = 0.14) {
+  const sq = (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+  if (a > 0) {
+    ctx.save();
+    ctx.globalAlpha = a; ctx.fillStyle = `rgba(255,79,163,${fillA})`;
+    ctx.fillRect(S0[0], S0[1], SZ, SZ);
+    ctx.restore();
+  }
+  arrow(...sq(0, 0), ...sq(1, 0), COL.white, 2, a * 0.6, 1);
+  arrow(...sq(0, 1), ...sq(1, 1), COL.white, 2, a * 0.6, 1);
+  arrow(...sq(0, 0), ...sq(0, 1), COL.lav, 2, a * 0.6, 2);
+  arrow(...sq(1, 0), ...sq(1, 1), COL.lav, 2, a * 0.6, 2);
+  return sq;
+}
+// A 2×2 matrix with brackets.
+function matrix(cx, cy, m, a, color = COL.white) {
+  if (a <= 0) return;
+  const w = 150, h = 100;
+  ctx.save();
+  ctx.globalAlpha = a; ctx.strokeStyle = color; ctx.lineWidth = 3;
+  for (const sgn of [-1, 1]) {
+    const x = cx + sgn * w / 2;
+    ctx.beginPath();
+    ctx.moveTo(x - sgn * 12, cy - h / 2); ctx.lineTo(x, cy - h / 2); ctx.lineTo(x, cy + h / 2); ctx.lineTo(x - sgn * 12, cy + h / 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) {
+    txt(m[r][c], cx + (c - 0.5) * 70, cy + (r - 0.5) * 44, { size: 34, font: MATH, color, alpha: a });
+  }
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "Last time, homology counted holes using loops. Cohomology flips the point of view. Instead of studying the loops themselves, we study measurements of loops: rules that assign a number to every loop, like counting how often it crosses this dashed wall. It sounds like a small change, but it's the version Grothendieck needed, and you'll see why at the end.",
+    draw(p) {
+      txt('Cohomology', 640, 92, { size: 60, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      const la = ease(seg(p, 0.05, 0.15)), ra = ease(seg(p, 0.25, 0.35));
+      panel(80, 150, 520, 400, 'homology: the loops', la);
+      panel(680, 150, 520, 400, 'cohomology: measuring the loops', ra);
+      const L = [340, 360], R = [940, 360];
+      dot(...L, 30, COL.bg, la); ring(...L, 30, COL.pink, 0.7 * la);
+      polyline(loopPts(...L, 105), LOOPC, 4, la, 10);
+      dot(...R, 30, COL.bg, ra); ring(...R, 30, COL.pink, 0.7 * ra);
+      polyline(loopPts(...R, 105), LOOPC, 4, ra, 10);
+      dashed([[R[0] + 30, R[1]], [1180, R[1]]], COL.lav, 4, ease(seg(p, 0.47, 0.54)));
+      txt('crosses the wall once  →  1', 940, 510, { size: 24, color: COL.lav, alpha: ease(seg(p, 0.55, 0.62)) });
+      txt('a loop', 340, 510, { size: 24, color: LOOPC, alpha: la });
+    },
+  },
+  {
+    title: 'Walls measure loops',
+    text: "Here's the simplest measurement. Take the plane with a hole, and draw a wall from the hole out to infinity. Now, for any loop, count how many times it crosses the wall: plus one going counterclockwise, minus one going back. This loop crosses the wall twice, once each way, so it measures zero. This one goes around the hole once: it measures one. And this one winds around twice, so it measures two. The wall measures winding around the hole.",
+    draw(p) {
+      const a0 = ease(seg(p, 0.02, 0.08));
+      panel(60, 110, 760, 500, 'a plane with a hole', a0);
+      hole(a0);
+      dashed(RAY, COL.lav, 4, ease(seg(p, 0.1, 0.18)));
+      txt('wall', 760, 345, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.14, 0.2)) });
+      const loops = [
+        { pts: loopPts(650, 370, 85), a: 0.47, b: 0.58, y: 250, name: 'loop 1' },
+        { pts: loopPts(...HC, 130), a: 0.65, b: 0.73, y: 340, name: 'loop 2' },
+        { pts: loopPts(...HC, (th) => 115 + 55 * Math.sin((th - Math.PI / 2) / 4), 2, 420), a: 0.77, b: 0.85, y: 430, name: 'loop 3' },
+      ];
+      for (const L of loops) {
+        if (p < L.a) continue;
+        const done = p > L.b + 0.02;
+        const next = loops[loops.indexOf(L) + 1];
+        const dim = next && p > next.a ? 0.25 : 1;
+        L.ev = L.ev || crossings(L.pts, RAY);
+        const seen = traceWithCount(L.pts, L.ev, ease(seg(p, L.a, L.b)), LOOPC, dim);
+        txt(`${L.name}:`, 900, L.y, { size: 24, align: 'left', color: COL.soft, alpha: 1 });
+        txt(tally(seen), 1010, L.y, { size: 28, align: 'left', font: MATH, weight: done ? 700 : 400, alpha: 1 });
+      }
+      txt('+1 = counterclockwise', 1050, 160, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.37, 0.43)) });
+      txt('the wall measures winding', 1050, 530, { size: 26, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.87, 0.92)) });
+    },
+  },
+  {
+    title: "Walls that don't count",
+    text: "Not every wall measures something interesting. Draw a wall that closes up around a region. Any loop that crosses into the region has to cross back out, so this wall measures zero for every loop. Walls like this, which enclose a region, are called coboundaries. Two walls add by drawing both: their crossings just add up. So adding a coboundary to a wall never changes what it measures. And you can bend or slide a wall without changing any of its measurements, just like loops. So the first cohomology group is walls, modulo walls that enclose regions. It's homology, turned inside out.",
+    draw(p) {
+      const a0 = ease(seg(p, 0.0, 0.05));
+      panel(60, 110, 760, 500, '', a0);
+      hole(a0);
+      // part 1: a closed wall around a region
+      const CW = [285, 370], CR = 68;
+      const closed = range(120, (s) => [CW[0] + CR * Math.cos(TAU * s), CW[1] - CR * Math.sin(TAU * s)]);
+      const fade1 = 1 - ease(seg(p, 0.6, 0.64));
+      fillPath(closed, COL.lav, 0.15 * ease(seg(p, 0.08, 0.16)) * fade1);
+      dashed(closed, COL.lav, 4, ease(seg(p, 0.06, 0.14)) * fade1);
+      const big = loopPts(...HC, 175);
+      const evC = crossings(big, closed);
+      const fadeA = 1 - ease(seg(p, 0.46, 0.5));
+      if (p > 0.14 && p < 0.5) {
+        const seen = traceWithCount(big, evC, ease(seg(p, 0.14, 0.27)), LOOPC, fadeA);
+        txt('closed wall:', 900, 230, { size: 24, align: 'left', color: COL.soft, alpha: fadeA });
+        txt(tally(seen), 1050, 230, { size: 28, align: 'left', font: MATH, alpha: fadeA });
+      }
+      // ray + closed wall together: the tally is still 1
+      if (p > 0.52 && p < 0.64) {
+        const evB = evC.concat(crossings(big, RAY)).sort((x, y) => x.i - y.i);
+        const seen = traceWithCount(big, evB, ease(seg(p, 0.52, 0.6)), LOOPC, fade1);
+        txt('ray + circle:', 880, 230, { size: 24, align: 'left', color: COL.soft, alpha: fade1 });
+        txt(tally(seen), 1030, 230, { size: 28, align: 'left', font: MATH, alpha: fade1 });
+      }
+      const notes = (a) => fade(p, a, a + 0.04, 0.64, 0.68);
+      txt('in, then out: always 0', 1040, 300, { size: 24, color: COL.lav, alpha: notes(0.25) });
+      txt('a coboundary', 1040, 345, { size: 28, weight: 700, color: COL.lav, alpha: notes(0.41) });
+      txt('add walls: draw both, crossings add up', 1040, 400, { size: 20, color: COL.soft, alpha: notes(0.44) });
+      txt('+ a coboundary: nothing changes', 1040, 432, { size: 20, color: COL.soft, alpha: notes(0.52) });
+      // part 2: bend the wall, the measurement doesn't change
+      const amp = ease(seg(p, 0.64, 0.72));
+      const wall = range(120, (s) => {
+        const x = lerp(RAY[0][0], RAY[1][0], s);
+        const taper = Math.min(1, s * 6);
+        return [x, HC[1] + amp * 75 * taper * Math.sin(s * TAU * 1.25)];
+      });
+      dashed(wall, COL.lav, 4, ease(seg(p, 0.5, 0.53)));
+      if (p > 0.66) {
+        const lp = loopPts(...HC, 130);
+        const seen = traceWithCount(lp, crossings(lp, wall), ease(seg(p, 0.66, 0.76)), LOOPC);
+        txt('bent wall:', 900, 230, { size: 24, align: 'left', color: COL.soft });
+        txt(tally(seen), 1030, 230, { size: 28, align: 'left', font: MATH });
+      }
+      txt('bend it: same answer', 1040, 300, { size: 24, color: COL.lav, alpha: ease(seg(p, 0.74, 0.78)) });
+      txt('H¹ = walls / walls around regions', 1040, 430, { size: 25, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.79, 0.84)) });
+      txt('homology, turned inside out', 1040, 480, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.9, 0.95)) });
+    },
+  },
+  {
+    title: 'Two walls on a torus',
+    text: 'On the torus, we need two walls. On the glued square, draw one vertical wall and one horizontal wall. Now take the loop that winds three times one way and twice the other. Count its crossings. It crosses the vertical wall three times, and the horizontal wall twice. So the two walls read off exactly the two numbers, three and two, that describe the loop. Every measurement is a combination of these two. The first cohomology of the torus is Z squared, a mirror image of its homology.',
+    draw(p) {
+      const S0 = [120, 165], SZ = 400;
+      const sq = square(S0, SZ, ease(seg(p, 0.03, 0.1)));
+      const wa = ease(seg(p, 0.12, 0.2)), wb = ease(seg(p, 0.16, 0.24));
+      dashed([sq(0.5, 0), sq(0.5, 1)], COL.lav, 4, wa);
+      dashed([sq(0, 0.5), sq(1, 0.5)], COL.white, 4, wb);
+      // the (3, 2) loop, starting at (u0, v0)
+      const u0 = 0.1, v0 = 0.2, q = ease(seg(p, 0.3, 0.6));
+      const segs = [[]];
+      let prev = null;
+      for (let k = 0; k <= 400; k++) {
+        const s = (q * k) / 400;
+        const u = mod1(u0 + 3 * s), v = mod1(v0 + 2 * s);
+        if (prev && (Math.abs(u - prev[0]) > 0.5 || Math.abs(v - prev[1]) > 0.5)) segs.push([]);
+        segs[segs.length - 1].push(sq(u, v));
+        prev = [u, v];
+      }
+      for (const sgm of segs) polyline(sgm, LOOPC, 4, 1, 10);
+      if (q > 0 && q < 1) dot(...sq(mod1(u0 + 3 * q), mod1(v0 + 2 * q)), 8, LOOPC, 1, 14);
+      // crossings of the vertical wall u = 0.5 and the horizontal wall v = 0.5
+      const cu = [0, 1, 2].map((k) => (0.5 + k - u0) / 3), cv = [0, 1].map((k) => (0.5 + k - v0) / 2);
+      for (const s of cu) if (q > s && q - s < 0.12) ring(...sq(0.5, mod1(v0 + 2 * s)), 10 + 150 * (q - s), COL.lav, 1 - (q - s) / 0.12, 3);
+      for (const s of cv) if (q > s && q - s < 0.12) ring(...sq(mod1(u0 + 3 * s), 0.5), 10 + 150 * (q - s), COL.white, 1 - (q - s) / 0.12, 3);
+      const nu = cu.filter((s) => q > s).length, nv = cv.filter((s) => q > s).length;
+      const RX = 900, ca = ease(seg(p, 0.26, 0.32));
+      txt('vertical wall', RX, 190, { size: 24, color: COL.lav, alpha: ca });
+      txt('counts trips around the hole', RX, 222, { size: 19, color: COL.dim, alpha: ca });
+      txt(String(nu), RX, 280, { size: 64, font: MATH, weight: 700, color: COL.lav, alpha: ca });
+      txt('horizontal wall', RX, 360, { size: 24, color: COL.white, alpha: ca });
+      txt('counts trips around the tube', RX, 392, { size: 19, color: COL.dim, alpha: ca });
+      txt(String(nv), RX, 450, { size: 64, font: MATH, weight: 700, alpha: ca });
+      txt('loop 3b + 2a  ↦  (3, 2)', RX, 530, { size: 26, font: MATH, color: COL.soft, alpha: fade(p, 0.62, 0.68, 0.84, 0.87) });
+      txt('H¹(torus) = ℤ²', RX, 530, { size: 34, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.87, 0.93)) });
+    },
+  },
+  {
+    title: 'Multiplying walls',
+    text: "Cohomology can do something homology can't do easily: multiply. Put the two walls on the torus, and call the vertical wall alpha and the horizontal wall beta. Notice the swap: alpha, which counted trips around the hole, is itself a circle around the tube, and beta is a circle around the hole. They cross at exactly one point. In general, two walls, each a curve on a two-dimensional surface, meet in points. Walls measure loops; points measure surfaces: count how many times a surface covers that point. The crossing point is the product of the two walls, written alpha cup beta. Every measurement of a surface is a whole-number multiple of this one, so H two of the torus is Z.",
+    draw(p, t) {
+      const U = 0.63, V = 0.75;
+      const curves = [
+        { pts: range(90, (s) => [U, V + s * ease(seg(p, 0.13, 0.21))]), c: COL.lav, w: 5 },
+        { pts: range(180, (s) => [U + s * ease(seg(p, 0.19, 0.27)), V]), c: COL.white, w: 5 },
+      ];
+      const da = ease(seg(p, 0.42, 0.46));
+      if (da > 0) {
+        const r = 0.006 * (1 + 0.3 * Math.sin(t * 6));
+        curves.push({ pts: range(16, (s) => [U + r * 2 * Math.cos(TAU * s), V + r * 4 * Math.sin(TAU * s)]), c: COL.pink, w: 16 * da });
+      }
+      drawSurface({ pitch: 1.0, yaw: sway(t, -0.25), cx: 560, cy: 390, scale: 145, alpha: ease(seg(p, 0, 0.06)), curves });
+      txt('cohomology can multiply', 640, 92, { size: 28, color: COL.soft, alpha: fade(p, 0.03, 0.08, 0.19, 0.22) });
+      txt('notice the swap: α counted trips around the hole, but circles the tube', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.22, 0.26, 0.39, 0.42) });
+      txt('the walls cross at exactly one point', 640, 92, { size: 28, color: COL.soft, alpha: fade(p, 0.41, 0.45, 0.45, 0.48) });
+      txt('curves on a surface meet in points', 640, 92, { size: 28, color: COL.soft, alpha: ease(seg(p, 0.48, 0.52)) });
+      const RX = 1080;
+      txt('α ∪ β', RX, 260, { size: 44, font: MATH, italic: true, alpha: ease(seg(p, 0.76, 0.81)) });
+      txt('= the crossing point', RX, 312, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.69, 0.74)) });
+      txt('every surface measurement', RX, 375, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.8, 0.85)) });
+      txt('is a whole multiple of it', RX, 399, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.8, 0.85)) });
+      txt('H²(torus) = ℤ', RX, 450, { size: 34, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.89, 0.94)) });
+      txt('walls measure loops', RX, 510, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.57, 0.61)) });
+      txt('points measure surfaces', RX, 540, { size: 20, color: COL.pink, alpha: ease(seg(p, 0.6, 0.64)) });
+      txt('α = vertical wall', RX, 170, { size: 18, color: COL.lav, alpha: ease(seg(p, 0.13, 0.19)) });
+      txt('β = horizontal wall', RX, 198, { size: 18, color: COL.white, alpha: ease(seg(p, 0.19, 0.25)) });
+    },
+  },
+  {
+    title: 'Maps act on cohomology',
+    text: "Here's the other superpower. Suppose you have a map from the torus to itself. Remember from video one: a point of the torus is a complex number z, where adding a lattice vector gives the same point. Take the simplest interesting map: send every point z to minus z. On the square, that's a half-turn. Every loop gets reversed: a goes to minus a, and b goes to minus b. And since every loop is reversed, every wall's count flips sign too. So on the first cohomology, the map acts by a two by two matrix, here minus one times the identity. Its trace, the sum of the diagonal entries, is minus two.",
+    draw(p) {
+      const S0 = [180, 210], SZ = 320, C = [S0[0] + SZ / 2, S0[1] + SZ / 2];
+      const rot = Math.PI * ease(seg(p, 0.41, 0.48));
+      txt('from video 1: a point of the torus is a complex number z, up to lattice vectors', 640, 100, { size: 20, color: COL.dim, alpha: fade(p, 0.12, 0.17, 0.36, 0.4) });
+      square(S0, SZ, ease(seg(p, 0.03, 0.08)));
+      // contents that turn with the map
+      ctx.save();
+      ctx.translate(...C); ctx.rotate(rot); ctx.translate(-C[0], -C[1]);
+      const aa = ease(seg(p, 0.08, 0.14));
+      arrow(C[0] - 120, C[1], C[0] + 120, C[1], COL.white, 4, aa);
+      arrow(C[0], C[1] + 120, C[0], C[1] - 120, COL.lav, 4, aa);
+      // an asymmetric marker so the turn is visible
+      fillPath([[C[0] + 70, C[1] + 60], [C[0] + 115, C[1] + 75], [C[0] + 70, C[1] + 95]], COL.pink, aa);
+      ctx.restore();
+      const before = aa * (1 - ease(seg(p, 0.41, 0.44))), after = ease(seg(p, 0.47, 0.52));
+      txt('b', C[0] + 124, C[1] - 26, { size: 28, font: MATH, italic: true, alpha: before });
+      txt('a', C[0] + 24, C[1] - 124, { size: 28, font: MATH, italic: true, color: COL.lav, alpha: before });
+      txt('−b', C[0] - 124, C[1] - 26, { size: 28, font: MATH, italic: true, alpha: after });
+      txt('−a', C[0] + 30, C[1] + 124, { size: 28, font: MATH, italic: true, color: COL.lav, alpha: after });
+      txt('half-turn about the center = z ↦ −z (mod lattice)', C[0], S0[1] - 30, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.41, 0.47)) });
+      const RX = 930;
+      txt('f(z) = −z', RX, 150, { size: 40, font: MATH, italic: true, color: COL.pink, alpha: ease(seg(p, 0.35, 0.4)) });
+      txt('on the curve: (x, y) ↦ (x, −y)', RX, 200, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.38, 0.43)) });
+      txt('so every wall count flips sign', RX, 240, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.59, 0.64)) });
+      txt('f acts on H¹ by', RX, 285, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.69, 0.74)) });
+      matrix(RX, 370, [['−1', '0'], ['0', '−1']], ease(seg(p, 0.72, 0.8)));
+      txt('trace = −1 + −1 = −2', RX, 480, { size: 30, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.86, 0.92)) });
+    },
+  },
+  {
+    title: 'Counting fixed points',
+    text: "Now the payoff. Lefschetz discovered that cohomology counts fixed points, the points a map leaves where they are. Add up the traces on each cohomology group, with alternating signs. H zero just sees that the torus is one piece; every map keeps it one piece, so its trace is one. H two sees the whole surface; a half-turn covers the surface once without flipping it, so its trace is also one. For our map, that's one, minus negative two, plus one. That's four.",
+    draw(p) {
+      const RX = 640;
+      txt('Lefschetz fixed-point formula', RX, 140, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.03, 0.1)) });
+      txt('# fixed points  =', RX, 210, { size: 34, alpha: ease(seg(p, 0.1, 0.16)) });
+      txt('tr H⁰  −  tr H¹  +  tr H²', RX, 275, { size: 40, font: MATH, alpha: ease(seg(p, 0.2, 0.27)) });
+      txt('H⁰: one piece → 1', RX - 190, 330, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.33, 0.39)) });
+      txt('H¹: the matrix → −2', RX, 330, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.8, 0.85)) });
+      txt('H²: covers once → 1', RX + 190, 330, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.57, 0.63)) });
+      txt('=  1  −  (−2)  +  1', RX, 395, { size: 40, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.81, 0.87)) });
+      txt('=  4', RX, 475, { size: 64, font: MATH, weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(p, 0.91, 0.95)) });
+    },
+  },
+  {
+    title: 'Checking: four fixed points',
+    text: "Sure enough, minus z equals z exactly when two z is a lattice point. That happens at four points of the torus: the corner, the midpoints of the two edges, and the center. On the elliptic curve, these are where y equals zero: the three roots, e one, e two, e three, plus the point at infinity. The same four branch points from the very first video.",
+    draw(p, t) {
+      const RX = 880;
+      txt('# fixed points  =  4', RX, 160, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0, 0.05)) });
+      txt('each fixed point counts once', RX, 210, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.04, 0.1)) });
+      const S0 = [140, 180], SZ = 340;
+      const sq = square(S0, SZ, ease(seg(p, 0.02, 0.07)));
+      const pulse = 1 + 0.18 * Math.sin(t * 5);
+      const pts = [
+        { uv: [[0, 0], [1, 0], [0, 1], [1, 1]], lab: '∞', off: [-22, 22], a: 0.3, la: 0.7 },
+        { uv: [[0.5, 0], [0.5, 1]], lab: 'e₁', off: [0, 30], a: 0.33, la: 0.62 },
+        { uv: [[0, 0.5], [1, 0.5]], lab: 'e₂', off: [-30, 0], a: 0.36, la: 0.645 },
+        { uv: [[0.5, 0.5]], lab: 'e₃', off: [24, -24], a: 0.41, la: 0.67 },
+      ];
+      for (const P of pts) {
+        const pa = ease(seg(p, P.a, P.a + 0.03));
+        for (const uv of P.uv) dot(...sq(...uv), 9 * pulse, COL.pink, pa, 18);
+        const [x, y] = sq(...P.uv[0]);
+        txt(P.lab, x + P.off[0], y + P.off[1], { size: 24, font: MATH, italic: true, alpha: ease(seg(p, P.la, P.la + 0.03)) });
+      }
+      txt('−z = z  ⟺  2z is a lattice point', S0[0] + SZ / 2, S0[1] - 30, { size: 22, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.08, 0.14)) });
+      txt('corner, two edge midpoints, center', RX, 300, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.3, 0.42)) });
+      txt('on E: y = 0', RX, 380, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.45, 0.5)) });
+      txt('the roots e₁, e₂, e₃, plus ∞', RX, 420, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.6, 0.66)) });
+      txt('the branch points from video 1', RX, 510, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.77, 0.83)) });
+    },
+  },
+  {
+    title: 'The road ahead',
+    text: "Over a finite field, there's a special map called Frobenius, which raises coordinates to the power p. Frobenius acts on all solutions, including ones with coordinates in bigger fields; it leaves fixed exactly the solutions that live mod p. If we had a cohomology for curves mod p, Lefschetz would give a formula. H zero contributes one. On H two, Frobenius wraps the curve around itself p times, just as z goes to z to the power p wraps a circle around itself p times, so that trace is p. So the number of points equals one, minus the trace of Frobenius on H one, plus p. And the first cohomology still has dimension two. That's the two we told you to remember. Building that cohomology is exactly what Grothendieck did. It's étale cohomology.",
+    draw(p) {
+      txt('over 𝔽ₚ:   Frob(x, y) = (xᵖ, yᵖ)', 640, 130, { size: 34, font: MATH, italic: true, alpha: ease(seg(p, 0.03, 0.1)) });
+      txt('moves solutions in bigger fields; fixes exactly those mod p', 640, 185, { size: 26, color: COL.soft, alpha: ease(seg(p, 0.13, 0.22)) });
+      txt('tr on H⁰ = 1', 340, 235, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.38, 0.43)) });
+      txt('tr on H² = p  (like z ↦ zᵖ wrapping a circle p times)', 800, 235, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.41, 0.49)) });
+      txt('#E(𝔽ₚ)  =  1  −  tr(Frob | H¹)  +  p', 640, 295, { size: 44, font: MATH, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.64, 0.7)) });
+      txt('H¹ still has dimension 2', 640, 375, { size: 28, alpha: ease(seg(p, 0.76, 0.81)) });
+      txt('← remember this 2', 900, 375, { size: 22, color: COL.dim, align: 'left', alpha: ease(seg(p, 0.82, 0.86)) });
+      txt('but what cohomology works mod p?', 640, 465, { size: 26, color: COL.soft, alpha: ease(seg(p, 0.87, 0.91)) });
+      txt('étale cohomology', 640, 530, { size: 46, weight: 700, color: COL.pink, glow: 24, alpha: ease(seg(p, 0.93, 0.97)) });
+    },
+  },
+];
+
+startVideo({ title: 'Cohomology: measuring loops', scenes });
+</script>
+</body>
+</html>

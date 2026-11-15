@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counting Points Mod p</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── the curve ─────────────────────────────
+// E : y² = x³ − x + 1   (good reduction at every prime except 2 and 23)
+const F = (x, p) => (((x * x % p) * x - x + 1) % p + p) % p;
+const isPrime = (n) => { if (n < 2) return false; for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
+
+// All solutions (x, y) mod p, plus the count including the point at ∞.
+const cache = {};
+function solve(p) {
+  if (cache[p]) return cache[p];
+  const roots = {};
+  for (let y = 0; y < p; y++) (roots[y * y % p] = roots[y * y % p] || []).push(y);
+  const pts = [];
+  for (let x = 0; x < p; x++) for (const y of roots[F(x, p)] || []) pts.push([x, y]);
+  return (cache[p] = { pts, N: pts.length + 1, a: p + 1 - (pts.length + 1) });
+}
+const PRIMES = Array.from({ length: 1000 }, (_, i) => i).filter((n) => isPrime(n) && n !== 2 && n !== 23);
+const SQ7 = new Set([0, 1, 2, 4]);
+const minus = (n) => String(n).replace('-', '−');
+
+// p×p grid with the solutions lit up.
+function grid(p, x0, y0, S, a, showDots = true) {
+  if (a <= 0) return;
+  const d = S / p;
+  ctx.save();
+  ctx.globalAlpha = a * 0.5; ctx.strokeStyle = 'rgba(255,79,163,0.35)'; ctx.lineWidth = 1;
+  ctx.strokeRect(x0, y0, S, S);
+  ctx.restore();
+  if (showDots && p <= 61) for (let i = 0; i < p; i++) for (let j = 0; j < p; j++) {
+    dot(x0 + (i + 0.5) * d, y0 + S - (j + 0.5) * d, Math.max(1, d * 0.07), COL.dim, a * 0.5);
+  }
+  const r = Math.max(2.2, Math.min(9, d * 0.28));
+  for (const [x, y] of solve(p).pts) dot(x0 + (x + 0.5) * d, y0 + S - (y + 0.5) * d, r, COL.pink, a, p < 40 ? 10 : 4);
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "In video one, an elliptic curve over the complex numbers turned out to be a torus. Now we solve the same equation in clock arithmetic, modulo a prime p. We write F seven for the numbers mod seven. There are only finitely many points, so we can just count them. That count hides a pattern, and explaining it is what this series is about.",
+    draw(p, t) {
+      txt('Counting points mod p', 640, 80, { size: 56, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      txt('y² = x³ − x + 1', 640, 140, { size: 34, font: MATH, italic: true, alpha: ease(seg(p, 0.06, 0.14)) });
+      const la = ease(seg(p, 0.1, 0.2)), ra = ease(seg(p, 0.4, 0.48));
+      panel(80, 180, 520, 440, 'over ℂ', la);
+      panel(680, 180, 520, 440, 'over 𝔽₇  (clock arithmetic mod 7)', ra);
+      drawSurface({ pitch: 1.0, yaw: -0.25 + 0.35 * Math.sin(t * 0.35), cx: 340, cy: 400, scale: 105, alpha: la });
+      txt('a torus: infinitely many points', 340, 585, { size: 22, color: COL.soft, alpha: la });
+      grid(7, 790, 225, 300, ra);
+      txt('just a handful of dots', 940, 585, { size: 22, color: COL.soft, alpha: ra });
+      txt('so count them!', 940, 650, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.55, 0.62)) });
+    },
+  },
+  {
+    title: 'Clock arithmetic',
+    text: "Mod seven, numbers live on a clock with seven hours, and you wrap around. To solve y squared equals something, we need to know which numbers are squares. Square every hour on the clock. Zero goes to zero. One and six both go to one. Two and five go to four. Three and four go to two. So the squares mod seven are zero, one, two and four. Each nonzero square is hit twice, by y and minus y; three, five and six are never hit.",
+    draw(p) {
+      const C = [400, 380], R = 210;
+      const a0 = ease(seg(p, 0.02, 0.1));
+      ring(...C, R, COL.pink, 0.5 * a0, 2);
+      const pos = (k, r = R) => [C[0] + r * Math.sin(TAU * k / 7), C[1] - r * Math.cos(TAU * k / 7)];
+      const pairs = [[0, 0.41], [1, 0.46], [6, 0.46], [2, 0.52], [5, 0.52], [3, 0.57], [4, 0.57]];
+      const lit = new Set();
+      for (const [y, at] of pairs) {
+        const q = ease(seg(p, at, at + 0.07));
+        if (q <= 0) continue;
+        const s = y * y % 7;
+        lit.add(s);
+        const [x1, y1] = pos(y, R - 30), [x2, y2] = pos(s, R - 30);
+        if (y === s) ring(x1, y1, 36, COL.lav, q, 2.5);
+        else {
+          // curved arrow through the interior
+          const mx = lerp(x1, x2, 0.5), my = lerp(y1, y2, 0.5);
+          const cx = lerp(mx, C[0], 0.5), cy = lerp(my, C[1], 0.5);
+          const pts = [];
+          for (let i = 0; i <= 40 * q; i++) {
+            const s2 = i / 40;
+            pts.push([(1 - s2) ** 2 * x1 + 2 * s2 * (1 - s2) * cx + s2 * s2 * x2, (1 - s2) ** 2 * y1 + 2 * s2 * (1 - s2) * cy + s2 * s2 * y2]);
+          }
+          polyline(pts, COL.lav, 2.5, 0.85, 6);
+          if (q >= 1) { const [ex, ey] = pts[pts.length - 1], [fx, fy] = pts[pts.length - 4]; arrow(fx, fy, ex, ey, COL.lav, 2.5, 0.85); }
+        }
+      }
+      for (let k = 0; k < 7; k++) {
+        const on = lit.has(k) && p > 0.66;
+        const [x, y] = pos(k);
+        dot(x, y, 30, on ? COL.pink : COL.bg, a0, on ? 18 : 0);
+        ring(x, y, 30, COL.pink, a0, 2);
+        txt(String(k), x, y, { size: 30, weight: 700, color: on ? COL.bg : COL.white, alpha: a0 });
+      }
+      txt('mod 7', C[0], C[1], { size: 30, color: COL.dim, alpha: a0 });
+      txt('y  →  y²', 960, 170, { size: 36, font: MATH, italic: true, alpha: ease(seg(p, 0.34, 0.4)) });
+      const rows = [['0²', '0', 0.41], ['1², 6²', '1', 0.46], ['2², 5²', '4', 0.52], ['3², 4²', '2', 0.57]];
+      rows.forEach(([l, r, at], i) => {
+        const a = ease(seg(p, at, at + 0.06));
+        txt(l, 930, 250 + i * 55, { size: 30, font: MATH, align: 'right', alpha: a });
+        txt(`=  ${r}`, 950, 250 + i * 55, { size: 30, font: MATH, align: 'left', color: COL.pink, alpha: a });
+      });
+      txt('squares mod 7:  {0, 1, 2, 4}', 960, 500, { size: 30, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.63, 0.7)) });
+      txt('each nonzero square: hit twice (±y)', 960, 560, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.75, 0.81)) });
+      txt('3, 5, 6: not squares at all', 960, 600, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.83, 0.89)) });
+    },
+  },
+  {
+    title: 'Counting by hand',
+    text: "Now count the points mod seven, keeping the squares zero, one, two and four in view. For each x from zero to six, compute the right-hand side. At x equals zero it's one, a square, so y is one or six: two points. In general, a nonzero square gives two points, zero gives one, and a non-square gives none. Adding up: two, two, one, two, zero, two, two. That's eleven. Plus one point at infinity, just like the torus in video one needed its point at infinity to close up. Call the curve E. We write the count as number of points of E over F seven: twelve.",
+    draw(p) {
+      const X0 = 90, Y0 = 170, RH = 50;
+      const cols = [['x', 150], ['x³ − x + 1  (mod 7)', 350], ['square?', 560], ['y', 720], ['points', 880]];
+      const ha = ease(seg(p, 0.02, 0.1));
+      for (const [h, x] of cols) txt(h, x, Y0 - 40, { size: 24, color: COL.soft, font: h.includes('³') || h === 'y' ? MATH : SANS, italic: h === 'y', alpha: ha });
+      line(X0, Y0 - 15, 950, Y0 - 15, COL.pink, 1, 0.4 * ha);
+      // squares chip, visible throughout
+      const sqa = ease(seg(p, 0.05, 0.12));
+      panel(985, 70, 210, 90, '', sqa);
+      txt('squares mod 7', 1090, 98, { size: 18, color: COL.soft, alpha: sqa });
+      txt('{0, 1, 2, 4}', 1090, 134, { size: 28, font: MATH, weight: 700, color: COL.lav, alpha: sqa });
+      // row timings: x = 0 is narrated in detail, the rest follow "Adding up"
+      const AT = [0.24, 0.56, 0.575, 0.59, 0.605, 0.62, 0.635];
+      let run = 0;
+      for (let x = 0; x < 7; x++) {
+        const at = AT[x];
+        const a = ease(seg(p, at, at + 0.04));
+        if (a <= 0) break;
+        const v = F(x, 7), n = v === 0 ? 1 : SQ7.has(v) ? 2 : 0;
+        run += n;
+        const ys = [];
+        for (let y = 0; y < 7; y++) if (y * y % 7 === v) ys.push(y);
+        const y = Y0 + 12 + x * RH;
+        txt(String(x), 150, y, { size: 28, font: MATH, alpha: a });
+        txt(String(v), 350, y, { size: 28, font: MATH, alpha: a });
+        txt(v === 0 ? 'zero' : SQ7.has(v) ? 'yes' : 'no', 560, y, { size: 24, color: n ? COL.lav : COL.dim, alpha: a });
+        txt(ys.length ? ys.join(', ') : '—', 720, y, { size: 26, font: MATH, color: n ? COL.white : COL.dim, alpha: a });
+        txt(String(n), 880, y, { size: 30, weight: 700, font: MATH, color: n ? COL.pink : COL.dim, alpha: a });
+      }
+      if (p > 0.24) {
+        txt('running total', 1090, 220, { size: 22, color: COL.soft });
+        txt(String(run), 1090, 285, { size: 64, weight: 700, font: MATH, color: COL.pink, glow: 18 });
+      }
+      const ia = ease(seg(p, 0.65, 0.7));
+      txt('+ 1 point at ∞', 1090, 380, { size: 28, color: COL.lav, alpha: ia });
+      txt('(closes it up, like the torus)', 1090, 415, { size: 18, color: COL.dim, alpha: ia });
+      txt('#E(𝔽₇) = 12', 1090, 500, { size: 40, weight: 700, font: MATH, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.84, 0.9)) });
+    },
+  },
+  {
+    title: 'The picture',
+    text: "Here are those points on a seven by seven grid: each column is a value of x, each row a value of y. Now let's try bigger primes. Thirteen: a few more dots. Thirty-one: already busier. Sixty-one: busier still. A hundred and one: a cloud. The dots look random, but mirror symmetric, since y and minus y pair up. And the counts land close to p plus one.",
+    draw(p) {
+      const seq = [[7, 0.0], [13, 0.38], [31, 0.44], [61, 0.5], [101, 0.56]];
+      let k = 0;
+      for (let i = 0; i < seq.length; i++) if (p >= seq[i][1]) k = i;
+      const P = seq[k][0];
+      const a = ease(seg(p, seq[k][1], seq[k][1] + 0.04)) * (k === 0 ? ease(seg(p, 0, 0.06)) : 1);
+      const x0 = 120, y0 = 110, S = 520;
+      grid(P, x0, y0, S, a);
+      txt('x  →', x0 + S / 2, y0 + S + 28, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.1, 0.16)) });
+      txt('y', x0 - 30, y0 + S / 2, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.12, 0.18)) });
+      ctx.save(); ctx.setLineDash([6, 8]);
+      line(x0, y0 + S / 2, x0 + S, y0 + S / 2, COL.lav, 1.5, 0.6 * ease(seg(p, 0.65, 0.71)));
+      ctx.restore();
+      txt('mirror: y ↔ −y', x0 + S / 2, y0 - 22, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.65, 0.71)) });
+      // table of counts
+      txt('p', 780, 150, { size: 26, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.05, 0.12)) });
+      txt('#E(𝔽ₚ)', 930, 150, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.05, 0.12)) });
+      txt('p + 1', 1100, 150, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.82, 0.88)) });
+      seq.forEach(([q, at], i) => {
+        const ra = ease(seg(p, Math.max(at, 0.04), Math.max(at, 0.04) + 0.04));
+        const y = 210 + i * 64;
+        const cur = i === k;
+        txt(String(q), 780, y, { size: 32, font: MATH, color: cur ? COL.pink : COL.white, alpha: ra });
+        txt(String(solve(q).N), 930, y, { size: 32, font: MATH, weight: 700, color: cur ? COL.pink : COL.white, alpha: ra });
+        txt(String(q + 1), 1100, y, { size: 32, font: MATH, color: COL.lav, alpha: ra * ease(seg(p, 0.82, 0.88)) });
+      });
+      txt('always close to p + 1', 940, 560, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.9, 0.95)) });
+    },
+  },
+  {
+    title: 'Why p + 1?',
+    text: "Why p plus one? Think of it as a coin flip. About half of the nonzero numbers mod p are squares. For each x, a square on the right gives two points, and a non-square gives none. So on average each x contributes one point: about p points, plus the point at infinity. The real question is the error. Call it a sub p: p plus one minus the count. If these were truly coin flips, the error would typically be around root p, like a random walk. The surprise: it never exceeds two root p.",
+    draw(p) {
+      const a0 = ease(seg(p, 0.04, 0.12));
+      txt('for each x:', 320, 150, { size: 28, color: COL.soft, alpha: a0 });
+      const cards = [['square', '2 points', COL.pink, 0.15], ['not a square', '0 points', COL.dim, 0.25]];
+      cards.forEach(([h, s, c, at], i) => {
+        const a = ease(seg(p, at, at + 0.06));
+        panel(110 + i * 230, 190, 200, 150, '', a);
+        txt(h, 210 + i * 230, 235, { size: 24, color: c, alpha: a });
+        txt(s, 210 + i * 230, 290, { size: 32, weight: 700, color: COL.white, alpha: a });
+        txt('½ the time', 210 + i * 230, 380, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.3, 0.36)) });
+      });
+      txt('average: 1 point per x', 320, 450, { size: 30, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.38, 0.44)) });
+      txt('p values of x  +  ∞   →   p + 1', 320, 520, { size: 28, font: MATH, alpha: ease(seg(p, 0.44, 0.5)) });
+      // the error, on the right
+      const ra = ease(seg(p, 0.52, 0.6));
+      panel(700, 140, 500, 440, 'the error', ra);
+      txt('aₚ  =  p + 1 − #E(𝔽ₚ)', 950, 230, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ra });
+      const ex = [[7, 0.62], [13, 0.64], [31, 0.66], [61, 0.68], [101, 0.7]];
+      ex.forEach(([q, at], i) => {
+        const a = ease(seg(p, at, at + 0.04));
+        const s = solve(q);
+        txt(`p = ${q}:   ${q + 1} − ${s.N}  =  ${minus(s.a)}`, 950, 290 + i * 42, { size: 24, font: MATH, alpha: a });
+      });
+      line(740, 495, 1160, 495, COL.pink, 1, 0.3 * ra);
+      txt('coin flips ⟹ error ≈ √p  (random walk)', 950, 525, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.7, 0.76)) });
+      txt('actual:  never beyond 2√p', 950, 560, { size: 26, weight: 700, color: COL.pink, glow: 12, alpha: ease(seg(p, 0.87, 0.92)) });
+    },
+  },
+  {
+    title: 'The 2√p wall',
+    text: "Let's plot that error for every prime up to a thousand: p across, a sub p up. The dots wander, seemingly at random, but never escape these two curves: plus and minus two times the square root of p. That's the Hasse bound, from the nineteen thirties: the count is p plus one, give or take at most two root p.",
+    draw(p) {
+      const X0 = 110, X1 = 1190, YC = 370, K = 3.6, PM = 1000;
+      const px = (q) => X0 + (X1 - X0) * q / PM, py = (a) => YC - K * a;
+      const a0 = ease(seg(p, 0.02, 0.08));
+      line(X0, YC, X1, YC, COL.white, 1.2, 0.4 * a0);
+      line(X0, py(66), X0, py(-66), COL.white, 1.2, 0.4 * a0);
+      for (const q of [250, 500, 750, 1000]) txt(String(q), px(q), YC + 248, { size: 18, color: COL.dim, alpha: a0 });
+      txt('p', X1 + 48, YC + 248, { size: 20, font: MATH, italic: true, color: COL.dim, alpha: a0 });
+      txt('aₚ', X0 - 40, py(60), { size: 24, font: MATH, color: COL.soft, alpha: a0 });
+      const upto = PM * ease(seg(p, 0.12, 0.42));
+      for (const q of PRIMES) {
+        if (q > upto) break;
+        dot(px(q), py(solve(q).a), 3.4, COL.pink, 0.95, 6);
+      }
+      const ca = ease(seg(p, 0.38, 0.46));
+      const curve = (sg) => Array.from({ length: 201 }, (_, i) => { const q = PM * i / 200; return [px(q), py(sg * 2 * Math.sqrt(q))]; });
+      polyline(curve(1), COL.lav, 3, ca, 12);
+      polyline(curve(-1), COL.lav, 3, ca, 12);
+      txt('+2√p', px(820), py(2 * Math.sqrt(820)) - 24, { size: 24, font: MATH, color: COL.lav, alpha: ca });
+      txt('−2√p', px(820), py(-2 * Math.sqrt(820)) + 26, { size: 24, font: MATH, color: COL.lav, alpha: ca });
+      txt('Hasse (1930s):   |aₚ| ≤ 2√p', 640, 80, { size: 36, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.59, 0.66)) });
+      txt('#E(𝔽ₚ) = p + 1 ± at most 2√p', 640, 130, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.72, 0.78)) });
+    },
+  },
+  {
+    title: 'Frobenius and the trace',
+    text: "Why two root p? Meet Frobenius, the map raising coordinates to the power p. It really acts on solutions in bigger fields, like a forty-nine-element field we'll meet soon. Among all those, the ones it leaves fixed are exactly our solutions mod p. The formula from the last video counts fixed points: one, minus the trace of Frobenius on H one, plus p. So a sub p is exactly that trace. H one is two-dimensional, so Frobenius is a two by two matrix, with eigenvalues alpha and beta. Their sum is the trace, a sub p. Their product is p, another fact we'll take on trust for now.",
+    draw(p) {
+      txt('Frob :  (x, y)  ↦  (xᵖ, yᵖ)', 640, 80, { size: 36, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.02, 0.08)) });
+      txt('it acts on points over bigger fields too (like 𝔽₄₉)', 640, 120, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.13, 0.19)) });
+      txt('fixed points of Frob  =  the solutions mod p', 640, 152, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.28, 0.34)) });
+      line(240, 178, 1040, 178, COL.pink, 1, 0.3 * ease(seg(p, 0.4, 0.45)));
+      txt('#E(𝔽ₚ)  =  1 − tr(Frob | H¹) + p', 640, 215, { size: 32, font: MATH, alpha: ease(seg(p, 0.4, 0.46)) });
+      txt('#E(𝔽ₚ)  =  p + 1 − aₚ', 640, 265, { size: 28, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.55, 0.6)) });
+      txt('⟹   aₚ = tr(Frob | H¹)', 640, 318, { size: 32, font: MATH, weight: 700, color: COL.pink, glow: 12, alpha: ease(seg(p, 0.58, 0.64)) });
+      // left: the 2×2 matrix
+      const ma = ease(seg(p, 0.67, 0.74));
+      txt('H¹ is 2-dimensional', 380, 385, { size: 26, alpha: ease(seg(p, 0.65, 0.71)) });
+      const bx = 300, by = 420, bw = 160, bh = 120;
+      ctx.save(); ctx.globalAlpha = ma; ctx.strokeStyle = COL.white; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(bx + 14, by); ctx.lineTo(bx, by); ctx.lineTo(bx, by + bh); ctx.lineTo(bx + 14, by + bh); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx + bw - 14, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw - 14, by + bh); ctx.stroke();
+      ctx.restore();
+      [['∗', 0, 0], ['∗', 1, 0], ['∗', 0, 1], ['∗', 1, 1]].forEach(([s, i, j]) => txt(s, bx + 45 + i * 70, by + 32 + j * 56, { size: 30, font: MATH, color: COL.soft, alpha: ma }));
+      txt('Frob =', bx - 70, by + bh / 2, { size: 28, font: MATH, alpha: ma });
+      txt('eigenvalues  α, β', 380, 575, { size: 26, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.75, 0.8)) });
+      // right: trace and determinant
+      panel(680, 380, 460, 200, '', ease(seg(p, 0.8, 0.86)));
+      txt('α + β  =  trace  =  aₚ', 910, 430, { size: 30, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.8, 0.86)) });
+      txt('α · β  =  det  =  p', 910, 505, { size: 30, font: MATH, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.85, 0.91)) });
+      txt('(taken on trust for now)', 910, 548, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.88, 0.94)) });
+    },
+  },
+  {
+    title: 'Where the 2 comes from',
+    text: "Now the deep fact, also taken on trust and proved later in the series: both eigenvalues have size exactly root p. In fact they are complex conjugates, so we rename them alpha and alpha bar: a mirror pair on a circle of radius root p. Each one's shadow on the real line is at most root p. The trace is twice that shadow, so at most two root p. The two is the dimension of H one, one root p per eigenvalue.",
+    draw(p, t) {
+      const C = [400, 380], R = 190;
+      const ca = ease(seg(p, 0.25, 0.32));
+      line(C[0] - R - 50, C[1], C[0] + R + 50, C[1], COL.white, 1.2, 0.5 * ca);
+      line(C[0], C[1] - R - 30, C[0], C[1] + R + 30, COL.white, 1.2, 0.3 * ca);
+      ring(...C, R, COL.lav, ca, 2.5);
+      txt('radius √p', C[0] + R + 10, C[1] - R + 5, { size: 22, align: 'left', font: MATH, color: COL.lav, alpha: ca });
+      // cycle through primes: α/√p = (aₚ + i√(4p − aₚ²)) / (2√p)
+      const list = [7, 13, 29, 47, 67, 89, 41];
+      const ph = (t * 0.25) % list.length;
+      const i0 = Math.floor(ph), k = ease(seg(ph - i0, 0.6, 1));
+      const th = (q) => Math.acos(solve(q).a / (2 * Math.sqrt(q)));
+      const theta = lerp(th(list[i0]), th(list[(i0 + 1) % list.length]), k);
+      const q = list[k < 0.5 ? i0 : (i0 + 1) % list.length];
+      const ea = ease(seg(p, 0.3, 0.38));
+      const A = [C[0] + R * Math.cos(theta), C[1] - R * Math.sin(theta)];
+      const Ab = [A[0], C[1] + R * Math.sin(theta)];
+      line(...C, ...A, COL.soft, 1.5, 0.5 * ea);
+      line(...C, ...Ab, COL.soft, 1.5, 0.5 * ea);
+      dot(...A, 10, COL.pink, ea, 16); dot(...Ab, 10, COL.pink, ea, 16);
+      txt('α', A[0] + 24, A[1] - 18, { size: 30, font: MATH, italic: true, alpha: ea });
+      txt('ᾱ', Ab[0] + 24, Ab[1] + 20, { size: 30, font: MATH, italic: true, alpha: ea });
+      const sa = ease(seg(p, 0.52, 0.58));
+      ctx.save(); ctx.setLineDash([5, 6]);
+      line(...A, A[0], C[1], COL.soft, 1.5, 0.7 * sa);
+      ctx.restore();
+      line(C[0], C[1], A[0], C[1], COL.pink, 7, sa);
+      const shL = A[0] < C[0];
+      txt('shadow of α', shL ? C[0] - R - 20 : C[0] + R + 20, C[1] + 30, { size: 20, color: COL.pink, align: shL ? 'right' : 'left', alpha: sa });
+      txt(`p = ${q}`, C[0] - R, C[1] - R, { size: 22, font: MATH, color: COL.dim, alpha: ea });
+      // right column
+      const RX = 920;
+      txt('|α| = |β| = √p', RX, 170, { size: 34, font: MATH, weight: 700, color: COL.lav, glow: 12, alpha: ease(seg(p, 0.16, 0.22)) });
+      txt('β = ᾱ  (complex conjugates)', RX, 250, { size: 22, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.28, 0.34)) });
+      txt('(the deep fact: assumed now, proved later)', RX, 210, { size: 19, color: COL.dim, alpha: ease(seg(p, 0.18, 0.24)) });
+      txt('shadow of each  ≤  √p', RX, 300, { size: 28, font: MATH, alpha: ease(seg(p, 0.53, 0.59)) });
+      txt('aₚ = α + ᾱ = 2 × shadow', RX, 355, { size: 28, font: MATH, alpha: ease(seg(p, 0.66, 0.72)) });
+      txt('|aₚ|  ≤  2√p', RX, 420, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.72, 0.78)) });
+      txt('the 2 = dim H¹', RX, 510, { size: 32, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.8, 0.86)) });
+      txt('one √p per eigenvalue', RX, 552, { size: 20, color: COL.soft, alpha: ease(seg(p, 0.88, 0.93)) });
+    },
+  },
+  {
+    title: 'Finding α for p = 7',
+    text: "For p equals seven, a sub seven is minus four. So the two eigenvalues have sum minus four and product seven, which means they solve t squared plus four t plus seven equals zero. The quadratic formula gives minus two, plus or minus i times the square root of three. Check: the size squared is four plus three, which is seven, so the size is root seven.",
+    draw(p) {
+      txt('p = 7:    a₇ = 8 − 12 = −4', 640, 100, { size: 34, font: MATH, alpha: ease(seg(p, 0.02, 0.09)) });
+      const sa = ease(seg(p, 0.18, 0.25)), pa = ease(seg(p, 0.25, 0.32));
+      panel(250, 160, 340, 100, '', sa);
+      txt('α + ᾱ  =  −4', 420, 210, { size: 32, font: MATH, color: COL.pink, alpha: sa });
+      panel(690, 160, 340, 100, '', pa);
+      txt('α · ᾱ  =  7', 860, 210, { size: 32, font: MATH, color: COL.lav, alpha: pa });
+      const qa = ease(seg(p, 0.38, 0.46));
+      arrow(640, 275, 640, 315, COL.soft, 2, qa);
+      txt('t² + 4t + 7 = 0', 640, 355, { size: 44, font: MATH, weight: 700, alpha: qa });
+      const ra = ease(seg(p, 0.48, 0.56));
+      txt('α, ᾱ  =  −2 ± √3 i', 640, 450, { size: 48, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ra });
+      txt('(−4 ± √(16 − 28)) / 2', 640, 500, { size: 22, font: MATH, color: COL.dim, alpha: ra });
+      txt('check:  |α|² = 4 + 3 = 7,   so |α| = √7', 640, 570, { size: 28, font: MATH, color: COL.lav, alpha: ease(seg(p, 0.71, 0.77)) });
+    },
+  },
+  {
+    title: 'The road ahead',
+    text: "There's more. For every n there's a field with seven to the n elements; the one with forty-nine is built by inventing a square root of minus one, much like the complex numbers, and we'll build it in video six. Over the bigger field, the fixed points are those of Frobenius applied n times, whose eigenvalues are alpha to the n and alpha bar to the n. Same formula: the count is seven to the n, plus one, minus alpha to the n, minus alpha bar to the n. For n equals two, alpha squared plus alpha bar squared is the sum squared minus twice the product: sixteen minus fourteen, two. So the count is forty-eight. For n equals three, a similar identity, sum cubed minus three times product times sum, gives twenty, so the count is three hundred twenty-four. All these counts together make the zeta function, the subject of the next video: the Weil conjectures.",
+    draw(p) {
+      txt('a field with 7ⁿ elements exists for every n', 640, 56, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.02, 0.08)) });
+      txt('𝔽₄₉ = 𝔽₇ with i = √−1 added, like ℂ from ℝ  (built in video 6)', 640, 92, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.08, 0.14)) });
+      txt('with 7ⁿ elements: fixed points of Frobⁿ, eigenvalues αⁿ and ᾱⁿ', 640, 140, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.25, 0.32)) });
+      txt('same formula:   7ⁿ + 1 − αⁿ − ᾱⁿ', 640, 192, { size: 34, font: MATH, weight: 700, alpha: ease(seg(p, 0.4, 0.46)) });
+      const rows = [
+        ['n = 1', '𝔽₇', 'α + ᾱ = −4', '7 + 1 − (−4)', '12', 0.44, 0.46],
+        ['n = 2', '𝔽₄₉', 'α² + ᾱ² = (−4)² − 2·7 = 2', '49 + 1 − 2', '48', 0.51, 0.66],
+        ['n = 3', '𝔽₃₄₃', 'α³ + ᾱ³ = (−4)³ − 3·7·(−4) = 20', '343 + 1 − 20', '324', 0.69, 0.81],
+      ];
+      rows.forEach(([n, f, ps, e, v, at, at2], i) => {
+        const a = ease(seg(p, at, at + 0.05)), b = ease(seg(p, at2, at2 + 0.05));
+        const y = 262 + i * 64;
+        txt(n, 110, y, { size: 24, font: MATH, color: COL.soft, alpha: a });
+        txt(f, 220, y, { size: 26, font: MATH, color: COL.lav, alpha: a });
+        txt(ps, 510, y, { size: 24, font: MATH, alpha: a });
+        txt(e, 870, y, { size: 26, font: MATH, alpha: b });
+        txt(`= ${v}`, 1080, y, { size: 30, font: MATH, weight: 700, color: COL.pink, alpha: b });
+      });
+      txt('one pair of numbers controls every count', 640, 460, { size: 28, color: COL.soft, alpha: ease(seg(p, 0.82, 0.87)) });
+      txt('next: the zeta function & the Weil conjectures', 640, 540, { size: 32, weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(p, 0.86, 0.92)) });
+    },
+  },
+];
+
+startVideo({ title: 'Counting points mod p', scenes });
+</script>
+</body>
+</html>

@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Etale Cohomology</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── helpers ─────────────────────────────
+const range = (N, f) => Array.from({ length: N + 1 }, (_, k) => f(k / N));
+function dashed(pts, c, w, a, dash = [8, 7]) {
+  if (a <= 0) return;
+  ctx.save(); ctx.setLineDash(dash); polyline(pts, c, w, a, 6); ctx.restore();
+}
+// A wobbly closed curve standing in for "a curve X".
+const blob = (cx, cy, r, s0 = 0, s1 = 1, N = 200) => range(N, (s) => {
+  const th = TAU * lerp(s0, s1, s);
+  const rr = r * (1 + 0.12 * Math.sin(3 * th) + 0.06 * Math.cos(5 * th));
+  return [cx + rr * Math.cos(th), cy - 0.8 * rr * Math.sin(th)];
+});
+// Draw a closed blob with small gaps (removed points) at the given parameters.
+function punctured(cx, cy, r, holes, c, w, a) {
+  if (a <= 0) return;
+  const hs = [...holes].sort((x, y) => x - y), g = 0.012;
+  for (let i = 0; i < hs.length; i++) {
+    const s0 = hs[i] + g, s1 = (i + 1 < hs.length ? hs[i + 1] : hs[0] + 1) - g;
+    polyline(blob(cx, cy, r, s0, s1, 80), c, w, a, 8);
+  }
+  for (const h of hs) { const [x, y] = blob(cx, cy, r, h, h, 1)[0]; ring(x, y, 6, c, a, 2); }
+}
+function square(S0, SZ, a) {
+  if (a <= 0) return (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = 'rgba(255,79,163,0.1)'; ctx.strokeStyle = 'rgba(255,79,163,0.7)'; ctx.lineWidth = 2;
+  ctx.fillRect(S0[0], S0[1], SZ, SZ); ctx.strokeRect(S0[0], S0[1], SZ, SZ); ctx.restore();
+  return (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+}
+function gridLines(sq, n, c, a, w = 1) {
+  for (let k = 1; k < n; k++) {
+    line(...sq(k / n, 0), ...sq(k / n, 1), c, w, a);
+    line(...sq(0, k / n), ...sq(1, k / n), c, w, a);
+  }
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "Here's where we are. Weil's conjectures would follow from the Lefschetz formula, if only curves mod p had a cohomology: an H one of dimension two, with Frobenius acting on it. Over the complex numbers, H one comes from loops. But mod p, there are no loops to draw. In the early nineteen sixties, Alexander Grothendieck found a way around this, with Michael Artin and Jean-Louis Verdier. The trick is to stop looking at loops, and look at coverings instead.",
+    draw(p) {
+      txt('Étale cohomology', 640, 90, { size: 60, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      const wish = [['a cohomology for curves mod p', 0.08], ['H¹ of dimension 2', 0.16], ['Frobenius acts on it', 0.24]];
+      wish.forEach(([s, at], i) => txt(`☐  ${s}`, 640, 190 + i * 50, { size: 28, color: COL.soft, alpha: ease(seg(p, at, at + 0.06)) }));
+      txt('over ℂ: H¹ comes from loops', 640, 380, { size: 28, alpha: ease(seg(p, 0.36, 0.42)) });
+      txt('mod p: no loops to draw', 640, 430, { size: 28, color: COL.dim, alpha: ease(seg(p, 0.44, 0.5)) });
+      txt('Grothendieck (with Artin, Verdier), early 1960s', 640, 520, { size: 26, color: COL.lav, alpha: ease(seg(p, 0.58, 0.66)) });
+      txt('stop looking at loops. look at coverings.', 640, 600, { size: 34, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.84, 0.92)) });
+    },
+  },
+  {
+    title: 'Too few open sets',
+    text: "Why is there no topology mod p? There is one, called the Zariski topology, but it's far too coarse. An open set is the whole curve with finitely many points removed. That's all. So any two open sets overlap almost everywhere. There are no small neighborhoods, no little disks, nothing you could use to trace out a loop. If you compute cohomology with these open sets, H one comes out zero. Every overlap is still one connected piece, so there's nowhere for a shift to hide. The curve looks like a blob with no holes at all.",
+    draw(p) {
+      const C = [400, 380], R = 200;
+      const a0 = ease(seg(p, 0.04, 0.12));
+      polyline(blob(...C, R), COL.white, 2, 0.3 * a0);
+      txt('a curve mod p', C[0], C[1], { size: 22, color: COL.dim, alpha: a0 });
+      const A = ease(seg(p, 0.18, 0.25)) * (1 - 0.6 * ease(seg(p, 0.36, 0.4)));
+      punctured(...C, R, [0.08, 0.37, 0.71], COL.pink, 4, A);
+      const B = ease(seg(p, 0.32, 0.4));
+      punctured(...C, R + 22, [0.2, 0.52, 0.6, 0.9], COL.lav, 4, B);
+      const RX = 960;
+      txt('open set  =  curve − finitely many points', RX, 190, { size: 26, alpha: ease(seg(p, 0.2, 0.26)) });
+      txt('two open sets overlap almost everywhere', RX, 250, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.36, 0.42)) });
+      txt('no small neighborhoods', RX, 310, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.43, 0.49)) });
+      txt('no loops', RX, 355, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.51, 0.57)) });
+      txt('H¹  =  0', RX, 430, { size: 46, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.68, 0.73)) });
+      txt('every overlap is one connected piece:', RX, 495, { size: 21, color: COL.lav, alpha: ease(seg(p, 0.73, 0.78)) });
+      txt('nowhere for a shift to hide', RX, 527, { size: 21, color: COL.lav, alpha: ease(seg(p, 0.76, 0.81)) });
+      txt('(Zariski topology: too coarse)', RX, 580, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.88, 0.93)) });
+    },
+  },
+  {
+    title: 'Coverings detect holes',
+    text: "Here's the key idea. Over the complex numbers, you can detect a hole without drawing any loop, using coverings. Take a circle, and a second circle that wraps around it twice, like z goes to z squared. Walk once around the bottom circle, and follow along upstairs. You don't come back to where you started: you land on the other sheet. That twist is the hole, showing up. Without a hole, a double cover would just fall apart into two separate copies. The twisted coverings, labelled by their shift, are H one. We'll build this carefully next.",
+    draw(p, t) {
+      const C = [420, 0], RX = 230, RY = 52;
+      const base = (th) => [C[0] + RX * Math.cos(th), 560 + RY * Math.sin(th)];
+      const up = (th) => [C[0] + RX * Math.cos(th), 340 + RY * Math.sin(th) - 70 * (th / TAU)];
+      const a0 = ease(seg(p, 0.08, 0.16)), a1 = ease(seg(p, 0.2, 0.28));
+      polyline(range(120, (s) => base(TAU * s)), COL.white, 3, a0, 6);
+      txt('circle', C[0] + RX + 50, 560, { size: 22, color: COL.dim, alpha: a0 });
+      polyline(range(240, (s) => up(2 * TAU * s)), COL.lav, 3, a1, 8);
+      dashed([up(2 * TAU), up(0)], COL.lav, 2, 0.6 * a1);
+      txt('wraps twice', C[0] + RX + 95, 270, { size: 22, color: COL.lav, alpha: a1 });
+      txt('z ↦ z²', C[0] + RX + 95, 305, { size: 22, font: MATH, color: COL.lav, alpha: a1 });
+      arrow(C[0] + RX + 95, 340, C[0] + RX + 95, 520, COL.dim, 2, a1);
+      // walk
+      if (p > 0.34) {
+        const s = ease(seg(p, 0.36, 0.6));
+        const th = TAU * s + Math.PI / 2;
+        const B = base(th), U = up(th - Math.PI / 2 + Math.PI / 2 + 0) ;
+        const U2 = up(TAU * s + Math.PI / 2);
+        dashed([B, U2], COL.soft, 1.5, 0.6);
+        polyline(range(60, (q) => base(Math.PI / 2 + TAU * s * q)), COL.pink, 5, 1, 12);
+        polyline(range(60, (q) => up(Math.PI / 2 + TAU * s * q)), COL.pink, 5, 1, 12);
+        dot(...B, 9, COL.pink, 1, 14); dot(...U2, 9, COL.pink, 1, 14);
+        dot(...up(Math.PI / 2), 7, COL.white, 1);
+        txt('start', up(Math.PI / 2)[0] - 50, up(Math.PI / 2)[1], { size: 18, color: COL.soft });
+      }
+      txt('once around below → the other sheet above', 420, 95, { size: 26, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.6, 0.66)) });
+      // no hole: the cover falls apart
+      const na = ease(seg(p, 0.7, 0.78));
+      panel(820, 230, 380, 330, 'no hole', na);
+      const disk = (y, c, a) => { ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(1010, y, 120, 30, 0, 0, TAU); ctx.fill(); ctx.restore(); };
+      disk(330, 'rgba(201,162,255,0.45)', na); disk(400, 'rgba(201,162,255,0.45)', na); disk(500, 'rgba(255,255,255,0.25)', na);
+      txt('two separate copies', 1010, 540, { size: 20, color: COL.soft, alpha: na });
+      txt('twisted coverings, labelled by shift  =  H¹', 640, 650, { size: 32, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.88, 0.94)) });
+    },
+  },
+  {
+    title: 'Covers as gluing instructions',
+    text: "Let's slow down and build H one out of covers, step by step, on the simplest space: a circle. Put three copies of the circle above it, three sheets. Now cut all three at one spot, a seam, and glue them back with a rule: when you cross the seam, move up by k sheets. With k equals zero, nothing happens: you get three separate circles, the boring cover. Watch k equals one. Walk once around, cross the seam, and you're on sheet one. Again, sheet two. Again, back to zero. The three sheets have become one long spiral. Now k equals two. Walk once around, and you jump to sheet two. Again, sheet one. Again, back to zero. A spiral the other way. As shapes, the two spirals are mirror images, but we remember the direction of the shift, so one and two are different elements. So the three-sheeted twisted covers of a circle are labeled by a shift: zero, one or two. That's H one of the circle with coefficients Z mod three. On a torus, there are two independent seams, one for each loop, so two shifts: Z mod three, squared.",
+    draw(p, t) {
+      const CX = 400, RX = 250, RY = 46, G = 0.09;
+      const Y = [430, 330, 230];                       // sheets 0, 1, 2 (bottom → top)
+      const pt = (th, y) => [CX + RX * Math.cos(th), y + RY * Math.sin(th)];
+      const k = p < 0.355 ? 0 : p < 0.505 ? 1 : 2;
+      const a0 = ease(seg(p, 0.03, 0.08)), a1 = ease(seg(p, 0.1, 0.15));
+      // base circle with the seam
+      polyline(range(120, (s) => pt(TAU * s, 600)), COL.white, 3, a0, 6);
+      txt('the circle', CX + RX + 70, 600, { size: 20, color: COL.dim, alpha: a0 });
+      // sheets, cut at the seam (front, θ = π/2)
+      Y.forEach((y, j) => {
+        polyline(range(100, (s) => pt(Math.PI / 2 + G + (TAU - 2 * G) * s, y)), COL.lav, 3, a1 * 0.8, 6);
+        txt(`sheet ${j}`, CX - RX - 70, y, { size: 20, color: COL.soft, alpha: a1 });
+      });
+      const sa = ease(seg(p, 0.15, 0.19));
+      ctx.save(); ctx.setLineDash([5, 6]);
+      line(CX, Y[2] + RY - 30, CX, 600 + RY + 10, COL.pink, 1.5, 0.6 * sa);
+      ctx.restore();
+      txt('seam', CX, 600 + RY + 30, { size: 18, color: COL.pink, alpha: sa });
+      // gluing rule at the seam: arriving on sheet j (from the right) → leave on sheet j + k (to the left)
+      const ga = ease(seg(p, 0.23, 0.27));
+      for (let j = 0; j < 3; j++) {
+        const A = pt(Math.PI / 2 - G, Y[j]), B = pt(Math.PI / 2 + G, Y[(j + k) % 3]);
+        line(...A, ...B, COL.pink, 3, ga);
+      }
+      // walk three laps
+      const startAt = k === 0 ? 0.29 : k === 1 ? 0.37 : 0.52, dur = k === 0 ? 0.06 : 0.12;   // k = 1 and k = 2 walk at the same pace
+      const s = 3 * seg(p, startAt, startAt + dur);
+      if (s > 0) {
+        const L = Math.min(2, Math.floor(s)), fr = s - L;
+        for (let l = 0; l <= L; l++) {
+          const sheet = (l * k) % 3, upto = l < L ? 1 : fr;
+          polyline(range(60, (q) => pt(Math.PI / 2 + G + (TAU - 2 * G) * q * upto, Y[sheet])), COL.pink, 5, 0.9, 12);
+        }
+        const th = Math.PI / 2 + G + (TAU - 2 * G) * fr, sheet = (L * k) % 3;
+        dot(...pt(th, Y[sheet]), 10, COL.pink, 1, 16);
+        dot(...pt(th, 600), 8, COL.pink, 1, 12);
+      }
+      // right column
+      const RX2 = 990;
+      txt('crossing the seam: sheet j → sheet j + k', RX2, 130, { size: 22, color: COL.soft, alpha: ga });
+      const rows = [['k = 0', 'three separate circles', 0.28], ['k = 1', 'one spiral: 0 → 1 → 2 → 0', 0.355], ['k = 2', 'other way: 0 → 2 → 1 → 0', 0.505]];
+      rows.forEach(([a, b, at], i) => {
+        const al = ease(seg(p, at, at + 0.04)), on = (i === k);
+        txt(a, RX2 - 170, 210 + i * 60, { size: 28, font: MATH, weight: 700, color: on ? COL.pink : COL.soft, alpha: al });
+        txt(b, RX2 - 110, 210 + i * 60, { size: 21, align: 'left', color: on ? COL.white : COL.dim, alpha: al });
+      });
+      txt('mirror-image shapes, but the shift direction', RX2, 385, { size: 19, color: COL.lav, alpha: ease(seg(p, 0.64, 0.68)) });
+      txt('is remembered: +1 and +2 are different', RX2, 412, { size: 19, color: COL.lav, alpha: ease(seg(p, 0.66, 0.7)) });
+      txt('H¹(circle, ℤ/3) = {0, 1, 2}', RX2, 480, { size: 30, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.84, 0.88)) });
+      txt('torus: two seams → two shifts → (ℤ/3)²', RX2, 540, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.9, 0.95)) });
+    },
+  },
+  {
+    title: 'Cut, label, glue',
+    text: "Here's the same thing as a recipe, the way the actual construction works. Cut the circle into two overlapping pieces: a top piece and a bottom piece. Over each piece by itself, the cover is boring: just three flat copies. Label them zero, one, two. All the information is in how the labels match up where the pieces overlap. On the right overlap, sheet j of the top meets sheet j of the bottom: shift zero. On the left overlap, sheet j meets sheet j plus one: shift one. Now, the labels were our choice. Rename the bottom sheets by adding one. Both shifts change, to one and two, but the cover hasn't changed at all, and the difference between the shifts, the twist, is still one. So H one is: shifts on the overlaps, modulo relabeling the pieces. That's exactly the walls modulo coboundaries from the cohomology video. And notice: this recipe never draws a single loop.",
+    draw(p) {
+      const C = [400, 380], R = [120, 165, 210];
+      const W = 0.32;                                           // overlap half-width (radians)
+      const P = (r, th) => [C[0] + r * Math.cos(th), C[1] - r * Math.sin(th)];
+      const arc = (r, t0, t1) => range(60, (s) => P(r, lerp(t0, t1, s)));
+      const ua = ease(seg(p, 0.09, 0.14)), va = ease(seg(p, 0.12, 0.17));
+      // overlap wedges
+      const oa = ease(seg(p, 0.12, 0.17));
+      for (const th of [0, Math.PI]) {
+        ctx.save(); ctx.globalAlpha = 0.12 * oa; ctx.fillStyle = COL.white;
+        ctx.beginPath(); ctx.moveTo(...P(95, th - W)); ctx.lineTo(...P(235, th - W)); ctx.lineTo(...P(235, th + W)); ctx.lineTo(...P(95, th + W)); ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+      txt('overlap', P(300, 0)[0], C[1] - 38, { size: 18, color: COL.dim, alpha: oa });
+      txt('overlap', P(300, Math.PI)[0], C[1] - 38, { size: 18, color: COL.dim, alpha: oa });
+      // the top piece: sheets are arcs over (W, π − W); the bottom piece: (π + W, 2π − W)
+      R.forEach((r, j) => {
+        polyline(arc(r, W, Math.PI - W), COL.pink, 4, ua, 8);
+        polyline(arc(r, Math.PI + W, TAU - W), COL.lav, 4, va, 8);
+      });
+      txt('top piece', C[0], C[1] - 245, { size: 20, color: COL.pink, alpha: ua });
+      txt('bottom piece', C[0], C[1] + 245, { size: 20, color: COL.lav, alpha: va });
+      // labels: top fixed; bottom relabelled by c
+      const c = p < 0.61 ? 0 : 1;
+      const la = ease(seg(p, 0.2, 0.26));
+      R.forEach((r, j) => {
+        dot(...P(r, Math.PI / 2), 13, COL.pink, la);
+        txt(String(j), ...P(r, Math.PI / 2), { size: 16, weight: 700, color: COL.bg, alpha: la });
+        const flash = c && p < 0.67 ? 1 + 0.4 * Math.sin((p - 0.61) * 200) : 1;
+        dot(...P(r, 3 * Math.PI / 2), 13 * flash, COL.lav, la);
+        txt(String((j + c) % 3), ...P(r, 3 * Math.PI / 2), { size: 16, weight: 700, color: COL.bg, alpha: la });
+      });
+      // gluing in the overlaps (geometry fixed): right: same radius; left: radius j → j + 1
+      const g1 = ease(seg(p, 0.38, 0.43)), g2 = ease(seg(p, 0.49, 0.54));
+      R.forEach((r, j) => {
+        line(...P(r, W), ...P(r, -W), COL.white, 2.5, g1);
+        line(...P(r, Math.PI - W), ...P(R[(j + 1) % 3], Math.PI + W), COL.white, 2.5, g2);
+      });
+      const sR = c, sL = 1 + c;
+      txt(`shift +${sR}`, ...P(330, 0), { size: 24, font: MATH, weight: 700, color: COL.pink, alpha: g1 });
+      txt(`shift +${sL}`, ...P(330, Math.PI), { size: 24, font: MATH, weight: 700, color: COL.pink, alpha: g2 });
+      // right column
+      const RX = 960;
+      txt('1. cut X into overlapping pieces', RX, 150, { size: 22, alpha: ease(seg(p, 0.09, 0.14)) });
+      txt('2. over each piece: plain copies, labelled', RX, 195, { size: 22, alpha: ease(seg(p, 0.18, 0.23)) });
+      txt('3. record the shift on each overlap', RX, 240, { size: 22, alpha: ease(seg(p, 0.38, 0.43)) });
+      txt(`twist = left − right = ${sL} − ${sR} = 1`, RX, 330, { size: 26, font: MATH, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.53, 0.57)) });
+      txt('rename the bottom sheets (+1):', RX, 400, { size: 20, color: COL.soft, alpha: ease(seg(p, 0.61, 0.65)) });
+      txt('shifts change, the cover doesn’t', RX, 432, { size: 20, color: COL.soft, alpha: ease(seg(p, 0.66, 0.7)) });
+      txt('H¹ = shifts on overlaps', RX, 510, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.81, 0.85)) });
+      txt('modulo relabelling', RX, 550, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.83, 0.87)) });
+      txt('(walls mod coboundaries, video 3) · no loops needed', RX, 605, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.9, 0.94)) });
+    },
+  },
+  {
+    title: 'Square roots mod p',
+    text: "So why does this need a new topology mod p? Here's a concrete example. Take the line with the point zero removed, and the cover given by square root of x: two sheets, plus and minus root x. Over the complex numbers, walking around zero swaps the two sheets, just like in video one. Now go mod seven. One, two and four have square roots; three, five and six don't. Either way, there's no formula for square root of x on any piece of the line: it isn't a polynomial or a fraction in x, even though some numbers happen to have roots. So with the old pieces, the recipe never even gets started.",
+    draw(p) {
+      // left: the table of square roots mod 7
+      const a0 = ease(seg(p, 0.04, 0.1));
+      txt('X = line minus 0     cover: ±√x', 380, 100, { size: 26, font: MATH, alpha: a0 });
+      txt('over ℂ: loop around 0 swaps the sheets (video 1)', 380, 145, { size: 19, color: COL.dim, alpha: ease(seg(p, 0.33, 0.37)) });
+      // opening picture (over ℂ): walking x once around 0 swaps the two square roots
+      const va = ease(seg(p, 0.05, 0.1)) * (1 - ease(seg(p, 0.5, 0.53)));
+      if (va > 0) {
+        const XC = [230, 370], RC = [560, 370], RR = 115;
+        panel(90, 190, 280, 340, 'x  (0 removed)', va);
+        panel(420, 190, 280, 340, '√x : two sheets', va);
+        dot(...XC, 7, COL.bg, va); ring(...XC, 7, COL.pink, va, 2);
+        txt('0', XC[0] + 16, XC[1] + 16, { size: 16, color: COL.dim, alpha: va });
+        dot(...RC, 4, COL.dim, va);
+        const lap = seg(p, 0.3, 0.47), th = TAU * lap;
+        const ring1 = (C, r, t0, t1) => range(80, (s) => { const q = lerp(t0, t1, s); return [C[0] + r * Math.cos(q), C[1] - r * Math.sin(q)]; });
+        polyline(ring1(XC, RR, 0, TAU), COL.white, 1.5, 0.25 * va);
+        if (lap > 0) polyline(ring1(XC, RR, 0, th), COL.pink, 4, va, 10);
+        dot(XC[0] + RR * Math.cos(th), XC[1] - RR * Math.sin(th), 9, COL.pink, va, 14);
+        txt('x', XC[0] + RR * Math.cos(th) + 18, XC[1] - RR * Math.sin(th) - 14, { size: 20, font: MATH, italic: true, alpha: va });
+        // roots at angle θ/2 and θ/2 + π
+        const r2 = RR * 0.85;
+        if (lap > 0) {
+          polyline(ring1(RC, r2, 0, th / 2), COL.pink, 4, va, 10);
+          polyline(ring1(RC, r2, Math.PI, Math.PI + th / 2), COL.lav, 4, va, 10);
+        }
+        const A = [RC[0] + r2 * Math.cos(th / 2), RC[1] - r2 * Math.sin(th / 2)];
+        const B = [RC[0] + r2 * Math.cos(th / 2 + Math.PI), RC[1] - r2 * Math.sin(th / 2 + Math.PI)];
+        dot(...A, 10, COL.pink, va, 14); dot(...B, 10, COL.lav, va, 14);
+        txt('+√x', A[0] + 30, A[1] - 16, { size: 20, font: MATH, color: COL.pink, alpha: va });
+        txt('−√x', B[0] - 30, B[1] + 18, { size: 20, font: MATH, color: COL.lav, alpha: va });
+        txt('x goes around once → the roots trade places', 395, 570, { size: 21, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.45, 0.48)) * va });
+      }
+      const ta = ease(seg(p, 0.5, 0.53));
+      txt('x mod 7', 220, 200, { size: 20, color: COL.soft, alpha: ta });
+      txt('√x', 470, 200, { size: 22, font: MATH, color: COL.soft, alpha: ta });
+      const roots = { 1: '1, 6', 2: '3, 4', 4: '2, 5' };
+      for (let x = 1; x <= 6; x++) {
+        const has = x in roots, at = has ? 0.51 : 0.57, a = ease(seg(p, at, at + 0.03));
+        txt(String(x), 220, 200 + x * 42, { size: 26, font: MATH, alpha: a });
+        txt(has ? roots[x] : 'none', 470, 200 + x * 42, { size: 26, font: MATH, color: has ? COL.pink : COL.dim, alpha: a });
+      }
+      const RX = 930;
+      txt('1, 2, 4 have roots;  3, 5, 6 don’t', RX, 230, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.52, 0.58)) });
+      txt('either way: no formula for √x', RX, 320, { size: 30, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.62, 0.67)) });
+      txt('√x is not a polynomial or fraction in x', RX, 380, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.75, 0.79)) });
+      txt('(even though some numbers have roots)', RX, 420, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.83, 0.87)) });
+      txt('old pieces: the recipe never starts', RX, 510, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.9, 0.95)) });
+    },
+  },
+  {
+    title: 'The derivative test',
+    text: "Now try a different kind of piece: another line, with coordinate u, mapped down by u goes to u squared. Here's a calculus test: u squared has derivative two u, which is never zero away from u equals zero, as long as p isn't two. Étale means exactly that: no zero derivative, so no folding. The missing x's get hit by values of u in the field with forty-nine elements. On this piece, square root of x is just u, and the two sheets come apart as u and minus u. Yes, this piece is the cover itself. Over the complex numbers, small disks would also have split it. Mod p there are no small disks, so we let a piece wrap around instead. What counts is that pieces may be maps, not just subsets.",
+    draw(p) {
+      // left: the étale piece u ↦ u² over 𝔽₇
+      const ra = ease(seg(p, 0.03, 0.08));
+      panel(70, 130, 540, 480, 'an étale piece:  u ↦ u² = x', ra);
+      const X0 = 140, X1 = 560, yU = 240, yX = 430;
+      line(X0, yU, X1, yU, COL.white, 2, 0.6 * ra);
+      line(X0, yX, X1, yX, COL.white, 2, 0.6 * ra);
+      txt('u', X0 - 24, yU, { size: 22, font: MATH, italic: true, alpha: ra });
+      txt('x', X0 - 24, yX, { size: 22, font: MATH, italic: true, alpha: ra });
+      const xs = (v) => X0 + (X1 - X0) * (v + 0.5) / 7;
+      for (let u = 1; u <= 6; u++) {
+        const x = (u * u) % 7, a = ease(seg(p, 0.06 + u * 0.01, 0.09 + u * 0.01));
+        dot(xs(u), yU, 7, COL.lav, a, 8);
+        txt(String(u), xs(u), yU - 24, { size: 20, font: MATH, color: COL.lav, alpha: a });
+        arrow(xs(u), yU + 10, xs(x), yX - 10, COL.lav, 1.5, 0.6 * a);
+      }
+      for (let x = 1; x <= 6; x++) {
+        const hit = [1, 2, 4].includes(x);
+        dot(xs(x), yX, 7, hit ? COL.pink : COL.dim, ra, hit ? 8 : 0);
+        txt(String(x), xs(x), yX + 26, { size: 20, font: MATH, color: hit ? COL.pink : COL.dim, alpha: ra });
+      }
+      txt('missing 3, 5, 6: hit by u in 𝔽₄₉', 340, 495, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.41, 0.45)) });
+      txt('on this piece:  √x = u   ✓', 340, 545, { size: 28, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.52, 0.56)) });
+      txt('sheets split:  +u  and  −u', 340, 588, { size: 22, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.59, 0.63)) });
+      // right: the derivative test, then the honest objection
+      const RX = 945;
+      txt('d/du (u²)  =  2u', RX, 160, { size: 32, font: MATH, weight: 700, alpha: ease(seg(p, 0.15, 0.2)) });
+      txt('≠ 0  whenever u ≠ 0   (p ≠ 2)', RX, 205, { size: 22, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.2, 0.25)) });
+      txt('étale  =  no zero derivative  =  no folding', RX, 255, { size: 22, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.32, 0.37)) });
+      txt('“isn’t this piece just the cover itself?”  yes.', RX, 340, { size: 21, color: COL.white, alpha: ease(seg(p, 0.67, 0.71)) });
+      txt('over ℂ: small disks would split it too', RX, 385, { size: 21, color: COL.soft, alpha: ease(seg(p, 0.72, 0.76)) });
+      txt('mod p: no small disks → let a piece wrap around', RX, 425, { size: 21, color: COL.soft, alpha: ease(seg(p, 0.8, 0.84)) });
+      txt('pieces may be maps,', RX, 505, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.92, 0.95)) });
+      txt('not just subsets', RX, 548, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.93, 0.96)) });
+    },
+  },
+  {
+    title: 'A topology of maps',
+    text: "Now the general recipe. Grothendieck kept the cut, label, glue construction exactly as it was, and only changed what counts as a piece. Old pieces: open subsets, the curve minus a few points. New pieces: étale maps into the curve, like u goes to u squared. Étale maps are the ones that pass the derivative test: no zero derivative, so no folding or pinching. The name comes from the French word for slack water. Where two pieces overlap, you look at pairs of points, one from each piece, sitting over the same point below. Record the shifts there, and divide out by relabeling. That defines H one, and the same idea, one level up, gives every H-sub-i: H two, H three and so on. That's étale cohomology.",
+    draw(p, t) {
+      const la = ease(seg(p, 0.1, 0.17)), ra = ease(seg(p, 0.25, 0.31));
+      panel(80, 110, 520, 440, 'old: open subsets  U ⊂ X', la);
+      polyline(range(100, (s) => [130 + 420 * s, 430 + 25 * Math.sin(TAU * s * 1.5)]), COL.white, 3, la * 0.6);
+      polyline(range(40, (s) => { const x = lerp(0.3, 0.62, s); return [130 + 420 * x, 430 + 25 * Math.sin(TAU * x * 1.5)]; }), COL.pink, 7, la, 14);
+      txt('X', 120, 470, { size: 26, font: MATH, italic: true, alpha: la });
+      txt('U', 130 + 420 * 0.46, 380, { size: 26, font: MATH, italic: true, color: COL.pink, alpha: la });
+      panel(680, 110, 520, 440, 'new: étale maps  U → X', ra);
+      const bx = (s) => [730 + 420 * s, 470 + 18 * Math.sin(TAU * s * 1.5)];
+      polyline(range(100, bx), COL.white, 3, ra * 0.6);
+      txt('X', 720, 505, { size: 26, font: MATH, italic: true, alpha: ra });
+      const sheets = [[0.1, 0.5, 210, COL.pink, 0.29], [0.35, 0.9, 270, COL.lav, 0.32], [0.2, 0.7, 330, COL.pink, 0.35], [0.2, 0.7, 365, COL.soft, 0.38]];
+      for (const [s0, s1, y, c, at] of sheets) {
+        const a = ease(seg(p, at, at + 0.06));
+        polyline(range(40, (s) => { const q = lerp(s0, s1, s); return [bx(q)[0], y + 14 * Math.sin(TAU * q * 1.5)]; }), c, 4, a, 10);
+        arrow(bx((s0 + s1) / 2)[0], y + 25, bx((s0 + s1) / 2)[0], 445, c, 1.5, 0.6 * a);
+      }
+      txt('derivative never zero: no folding, no pinching', 640, 590, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.37, 0.43)) });
+      txt('étale  =  "slack water"', 640, 630, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.5, 0.55)) });
+      // an overlap: a point on each of two pieces, landing on the same point of X
+      const oa = ease(seg(p, 0.6, 0.64)) * (1 - ease(seg(p, 0.8, 0.84)));
+      if (oa > 0) {
+        const q = 0.43, X = bx(q);
+        const P1 = [X[0], 210 + 14 * Math.sin(TAU * q * 1.5)], P2 = [X[0], 270 + 14 * Math.sin(TAU * q * 1.5)];
+        dot(...P1, 9, COL.white, oa, 14); dot(...P2, 9, COL.white, oa, 14);
+        arrow(P1[0] - 14, P1[1] + 6, X[0] - 14, X[1] - 12, COL.white, 2.5, oa);
+        arrow(P2[0] + 14, P2[1] + 6, X[0] + 14, X[1] - 12, COL.white, 2.5, oa);
+        dot(...X, 9, COL.white, oa, 14);
+        txt('overlap = such pairs', X[0], 520, { size: 22, weight: 700, color: COL.white, alpha: oa });
+      }
+      const ca = ease(seg(p, 0.74, 0.78)) * (1 - ease(seg(p, 0.8, 0.84)));
+      txt('same recipe: pieces → overlaps → shifts mod relabelling', 640, 70, { size: 24, color: COL.lav, alpha: ca });
+      txt('Hⁱét (X, ℤ/n)', 640, 70, { size: 40, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.84, 0.9)) });
+    },
+  },
+  {
+    title: 'Coverings are algebra',
+    text: "Now run this on our elliptic curve. Its most important covers are made of equations. The key one is multiplication by n, which adds a point to itself n times. On the torus, multiplying by three stretches each little square onto the whole torus, so it's a covering with nine sheets. The points that go to zero are the three-torsion points, a three by three grid. Adding a three-torsion point permutes the nine sheets of this cover, so walking around each loop of the torus shifts the sheets by a grid point, the same kind of shift as before. Two loops give two shifts: Z mod three, squared. Before, each cover gave one element of H one. This single cover is the most twisted one possible: every shift shows up in it, so it hands us the whole group at once. And because adding points is done with polynomials, all of this works mod p too. The torsion points are still a grid, Z mod n, squared, whenever p doesn't divide n. There's our two.",
+    draw(p, t) {
+      const S0 = [140, 150], SZ = 420;
+      const a0 = ease(seg(p, 0.06, 0.14));
+      const sq = square(S0, SZ, a0);
+      const ga = ease(seg(p, 0.17, 0.21));
+      ctx.save(); ctx.setLineDash([6, 6]); gridLines(sq, 3, COL.soft, 0.6 * ga, 1.5); ctx.restore();
+      // one small square grows onto the whole torus
+      const g = ease(seg(p, 0.19, 0.27)) * (1 - ease(seg(p, 0.3, 0.33)));
+      if (g > 0) {
+        const u0 = lerp(1 / 3, 0, g), v0 = lerp(1 / 3, 0, g), w = lerp(1 / 3, 1, g);
+        const [x0, y1] = sq(u0, v0), [x1, y0] = sq(u0 + w, v0 + w);
+        ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = COL.lav; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.restore();
+      }
+      txt('×3 : each small square → the whole torus', S0[0] + SZ / 2, S0[1] - 24, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.19, 0.24)) });
+      const ta = ease(seg(p, 0.29, 0.33));
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) dot(...sq(i / 3, j / 3), 9, COL.pink, ta, 16);
+      txt('9 sheets', S0[0] + SZ + 60, S0[1] + 60, { size: 24, color: COL.lav, alpha: ease(seg(p, 0.26, 0.3)) });
+      // adding a 3-torsion point slides one sheet onto another: right (loop 1), then up (loop 2)
+      const sh = ease(seg(p, 0.37, 0.41)) * (1 - ease(seg(p, 0.6, 0.63)));
+      if (sh > 0) {
+        const du = ease(seg(p, 0.42, 0.49)) / 3, dv = ease(seg(p, 0.5, 0.57)) / 3;
+        const [gx0, gy1] = sq(0, 0), [gx1, gy0] = sq(1 / 3, 1 / 3);
+        ctx.save(); ctx.globalAlpha = 0.8 * sh; ctx.strokeStyle = COL.lav; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+        ctx.strokeRect(gx0, gy0, gx1 - gx0, gy1 - gy0); ctx.restore();
+        const [x0, y1] = sq(du, dv), [x1, y0] = sq(du + 1 / 3, dv + 1 / 3);
+        ctx.save(); ctx.globalAlpha = 0.5 * sh; ctx.fillStyle = COL.lav; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.restore();
+        txt('a sheet', (x0 + x1) / 2, (y0 + y1) / 2, { size: 18, color: COL.white, alpha: sh });
+        const cap = p < 0.495 ? 'loop 1: + (⅓, 0) slides a sheet onto the next' : 'loop 2: + (0, ⅓) slides it up';
+        txt(cap, S0[0] + SZ / 2, S0[1] + SZ + 34, { size: 20, color: COL.lav, alpha: sh * ease(seg(p, 0.42, 0.45)) });
+      }
+      txt('one cover, every shift → the whole group', S0[0] + SZ / 2, S0[1] + SZ + 34, { size: 20, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.67, 0.71)) });
+      const RX = 900;
+      txt('[n] P  =  P + P + ⋯ + P', RX, 180, { size: 30, font: MATH, alpha: ease(seg(p, 0.1, 0.16)) });
+      txt('E[3] = { P : 3P = 0 }', RX, 255, { size: 30, font: MATH, alpha: ease(seg(p, 0.29, 0.34)) });
+      txt('each loop ↦ a sheet shift by a grid point', RX, 315, { size: 20, color: COL.lav, alpha: ease(seg(p, 0.44, 0.49)) });
+      txt('two loops  ⟹  (ℤ/3)²', RX, 365, { size: 32, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.57, 0.61)) });
+      txt('adding points uses polynomials', RX, 440, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.8, 0.84)) });
+      txt('⟹ works mod p too', RX, 478, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.83, 0.87)) });
+      txt('mod p:  E[n] = (ℤ/n)²   (p ∤ n)', RX, 545, { size: 30, font: MATH, weight: 700, alpha: ease(seg(p, 0.89, 0.93)) });
+      txt('there’s the 2', RX, 605, { size: 34, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.94, 0.98)) });
+    },
+  },
+  {
+    title: 'ℓ-adic numbers',
+    text: "One problem: this gives answers mod n, like Z mod three, but traces should be honest numbers, like minus four. The fix: use n equals three, then nine, then twenty-seven, and so on, each grid refining the last. Stack the answers: a number known mod three, mod nine, mod twenty-seven, all consistently, is a three-adic integer. Any prime ell works, except p itself, where the torsion grid breaks down. The result is H one of the curve with ell-adic coefficients, where we also allow fractions so that dimension makes sense: a space of dimension exactly two, for every elliptic curve mod p. Just like the torus.",
+    draw(p) {
+      const S0 = [150, 140], SZ = 440;
+      const a0 = ease(seg(p, 0.08, 0.14));
+      const sq = square(S0, SZ, a0);
+      const levels = [[3, 0.2, COL.pink, 9], [9, 0.25, COL.lav, 4.5], [27, 0.3, COL.soft, 2.2]];
+      for (const [n, at, c, r] of levels) {
+        const a = ease(seg(p, at, at + 0.06));
+        if (n <= 9) gridLines(sq, n, c, 0.25 * a, 1);
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) dot(...sq(i / n, j / n), r, c, a, n === 3 ? 12 : 0);
+      }
+      const RX = 900;
+      const row = (s, y, at, o = {}) => txt(s, RX, y, { size: 30, font: MATH, alpha: ease(seg(p, at, at + 0.06)), ...o });
+      row('E[3] = (ℤ/3)²', 170, 0.2, { color: COL.pink });
+      row('E[9] = (ℤ/9)²', 220, 0.25, { color: COL.lav });
+      row('E[27] = (ℤ/27)²', 270, 0.3, { color: COL.soft });
+      row('⋮', 315, 0.34, { color: COL.dim });
+      row('stack:  ℤ₃ = 3-adic integers', 370, 0.36, { weight: 700 });
+      txt('any prime ℓ ≠ p  →  ℤℓ', RX, 435, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.53, 0.59)) });
+      txt('allow fractions:  ℤℓ  →  ℚℓ', RX, 478, { size: 22, color: COL.lav, alpha: ease(seg(p, 0.75, 0.8)) });
+      txt('H¹(E, ℚℓ)  has dimension 2', RX, 545, { size: 34, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.85, 0.9)) });
+      txt('just like the torus', RX, 600, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.94, 0.98)) });
+    },
+  },
+  {
+    title: 'Watching Frobenius act',
+    text: "Now Frobenius acts, because it moves torsion points to torsion points. Let's see it for our curve mod seven, with n equals two. The two-torsion points are infinity and the three points where y is zero: the roots of x cubed minus x plus one. One root is two; call that point P. The other two live in the field with forty-nine elements, where i is a square root of minus one, which doesn't exist mod seven. Call six plus three i the point Q. These three points lie on the line y equals zero, so they add up to zero; since each is its own negative, the third point, six plus four i, is P plus Q. Frobenius raises everything to the seventh power. It fixes two. And i to the seventh is minus i, so six plus three i becomes six minus three i, which is six plus four i. So Frobenius fixes P and sends Q to P plus Q. In the basis P, Q, that's the matrix one, one, zero, one. Its trace is two, which is zero mod two, and indeed a sub seven is minus four, which is even. Do this for every power of ell, and the trace becomes exactly minus four.",
+    draw(p) {
+      // (ℤ/2)² as a 2×2 grid of points
+      const G = (u, v) => [250 + u * 260, 470 - v * 260];
+      const a0 = ease(seg(p, 0.1, 0.18));
+      const pts = [
+        [0, 0, '∞ (= 0)', COL.dim, 0.11], [1, 0, 'P:  x = 2', COL.pink, 0.22],
+        [0, 1, 'Q:  x = 6 + 3i', COL.lav, 0.37], [1, 1, 'P+Q:  x = 6 + 4i', COL.lav, 0.45],
+      ];
+      for (const [u, v, lab, c, at] of pts) {
+        const a = ease(seg(p, at, at + 0.06));
+        dot(...G(u, v), 14, c, a, 16);
+        txt(lab, G(u, v)[0], G(u, v)[1] + (v ? -40 : 42), { size: 24, font: MATH, color: c === COL.dim ? COL.soft : c, alpha: a });
+      }
+      txt('E[2]:  y = 0,   x³ − x + 1 = 0', 380, 110, { size: 28, font: MATH, alpha: ease(seg(p, 0.11, 0.16)) });
+      txt('𝔽₇', G(1, 0)[0] + 50, G(1, 0)[1], { size: 20, color: COL.dim, align: 'left', alpha: ease(seg(p, 0.23, 0.27)) });
+      txt('𝔽₄₉', G(1, 1)[0] + 50, G(1, 1)[1], { size: 20, color: COL.dim, align: 'left', alpha: ease(seg(p, 0.26, 0.3)) });
+      txt('i² = −1  (no such i in 𝔽₇)', G(1, 1)[0] + 50, G(1, 1)[1] + 32, { size: 20, color: COL.dim, align: 'left', alpha: ease(seg(p, 0.31, 0.35)) });
+      txt('P + Q + R = 0 (one line)  ⟹  R = −(P+Q) = P+Q', G(0.5, 0)[0], 560, { size: 20, color: COL.soft, alpha: ease(seg(p, 0.42, 0.47)) });
+      // Frobenius: fix x = 2, swap the pair
+      const fa = ease(seg(p, 0.6, 0.64));
+      ring(...G(1, 0), 26, COL.pink, fa, 2.5);
+      const m = [(G(0, 1)[0] + G(1, 1)[0]) / 2, G(0, 1)[1] + 60];
+      arrow(G(0, 1)[0] + 20, G(0, 1)[1] + 20, m[0], m[1], COL.lav, 2.5, fa);
+      arrow(m[0], m[1], G(1, 1)[0] - 20, G(1, 1)[1] + 20, COL.lav, 2.5, fa);
+      txt('Frob: Q ↦ P+Q', m[0], m[1] + 26, { size: 20, color: COL.lav, alpha: fa });
+      txt('i⁷ = −i:  6 + 3i ↦ 6 − 3i = 6 + 4i', m[0], m[1] + 58, { size: 20, font: MATH, color: COL.soft, alpha: ease(seg(p, 0.62, 0.68)) });
+      const RX = 960;
+      txt('Frob on (ℤ/2)²  =', RX, 230, { size: 28, font: MATH, alpha: ease(seg(p, 0.77, 0.8)) });
+      const ma = ease(seg(p, 0.78, 0.82));
+      if (ma > 0) {
+        ctx.save(); ctx.globalAlpha = ma; ctx.strokeStyle = COL.white; ctx.lineWidth = 3;
+        for (const sg of [-1, 1]) { const x = RX + sg * 70; ctx.beginPath(); ctx.moveTo(x - sg * 12, 270); ctx.lineTo(x, 270); ctx.lineTo(x, 370); ctx.lineTo(x - sg * 12, 370); ctx.stroke(); }
+        ctx.restore();
+        [['1', '1'], ['0', '1']].forEach((r, i) => r.forEach((s, j) => txt(s, RX - 30 + j * 60, 298 + i * 44, { size: 32, font: MATH, alpha: ma })));
+      }
+      txt('basis P, Q:  Frob P = P,  Frob Q = P + Q', RX, 405, { size: 20, color: COL.soft, alpha: ease(seg(p, 0.79, 0.83)) });
+      txt('trace = 2 ≡ 0  (mod 2)', RX, 455, { size: 28, font: MATH, alpha: ease(seg(p, 0.84, 0.87)) });
+      txt('a₇ = −4  is even ✓', RX, 500, { size: 28, font: MATH, color: COL.pink, alpha: ease(seg(p, 0.88, 0.91)) });
+      txt('all powers of ℓ  ⟹  trace = −4 exactly', RX, 570, { size: 24, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.93, 0.97)) });
+    },
+  },
+  {
+    title: 'The scoreboard',
+    text: "With étale cohomology in hand, Grothendieck's school knocked out three of Weil's four conjectures. The Lefschetz formula holds, so the zeta function is a fraction: rationality. Poincaré duality holds, which gives the mirror symmetry. And comparing with the complex picture shows the dimensions are the Betti numbers. But the Riemann hypothesis, that every alpha coming from H-sub-i has absolute value exactly the square root of q, raised to the power i, wouldn't budge. For our curve, that's just root q. That took Grothendieck's student, Pierre Deligne, and it's the final video.",
+    draw(p) {
+      txt('Weil’s four conjectures', 640, 80, { size: 34, weight: 700, color: COL.soft, alpha: ease(seg(p, 0.02, 0.08)) });
+      const rows = [
+        ['1', 'Rationality', 'Lefschetz trace formula', 0.15, true],
+        ['2', 'Functional equation', 'Poincaré duality', 0.28, true],
+        ['3', 'Betti numbers', 'comparison with ℂ', 0.37, true],
+        ['4', 'Riemann hypothesis', '|α| = (√q)ⁱ ?   (α from Hⁱ)', 0.51, false],
+      ];
+      rows.forEach(([n, h, why, at, ok], i) => {
+        const a = ease(seg(p, at, at + 0.06)), y = 150 + i * 105;
+        panel(170, y, 940, 85, '', a);
+        txt(n, 210, y + 43, { size: 26, weight: 700, color: COL.pink, alpha: a });
+        txt(h, 250, y + 43, { size: 28, weight: 700, align: 'left', alpha: a });
+        txt(why, 1000, y + 43, { size: 22, align: 'right', color: COL.soft, alpha: a });
+        const ma = ease(seg(p, at + 0.06, at + 0.1));
+        txt(ok ? '✓' : '?', 1060, y + 43, { size: 36, weight: 700, color: ok ? COL.pink : COL.lav, glow: ok ? 14 : 0, alpha: ma });
+      });
+      txt('Grothendieck & school, 1960s', 640, 590, { size: 22, color: COL.dim, alpha: ease(seg(p, 0.8, 0.84)) });
+      txt('next: Deligne, 1974', 640, 650, { size: 34, weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(p, 0.88, 0.93)) });
+    },
+  },
+];
+
+startVideo({ title: 'Étale cohomology', scenes });
+</script>
+</body>
+</html>

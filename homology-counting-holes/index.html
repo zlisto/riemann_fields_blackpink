@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counting Holes</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── scene art ─────────────────────────────
+// Loops on the torus, in (u, v) coordinates: u goes around the hole, v around the tube.
+// v = 0.75 is the top of the tube; u = 0.5 faces the camera.
+const range = (N, f) => Array.from({ length: N + 1 }, (_, k) => f(k / N));
+const meridian = (u, q = 1) => range(90, (s) => [u, 0.75 + q * s]);       // loop a: around the tube
+const longitude = (v, q = 1) => range(180, (s) => [0.5 + q * s, v]);      // loop b: around the hole
+const U0 = 0.63; // start loops a bit off-center so a loop around the tube shows its circle
+const windLoop = (m, n, q = 1) => range(360, (s) => [U0 + m * q * s, 0.75 + n * q * s]);
+const mod1 = (x) => ((x % 1) + 1) % 1;
+
+const TORUS = (o) => drawSurface({ pitch: 1.0, ...o });
+// Gentle back-and-forth so the loops being discussed stay on the visible side.
+const sway = (t, base) => base + 0.35 * Math.sin(t * 0.35);
+
+// A wobbly closed loop around (cx, cy), traced up to fraction q.
+function wobble(cx, cy, R, k1, k2, q = 1) {
+  return range(Math.max(2, Math.ceil(200 * q)), (s) => {
+    const th = TAU * q * s;
+    const r = R * (1 + 0.07 * Math.sin(3 * th + k1) + 0.05 * Math.cos(5 * th + k2));
+    return [cx + r * Math.cos(th), cy + r * Math.sin(th)];
+  });
+}
+const circlePts = (cx, cy, r) => range(120, (s) => [cx + r * Math.cos(TAU * s), cy + r * Math.sin(TAU * s)]);
+
+// Flat 2D drawings of a torus and a genus-2 surface, with their a/b loops.
+function bodyFill(path, cx, cy, rx, a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  const g = ctx.createRadialGradient(cx - rx * 0.3, cy - 40, 10, cx, cy, rx * 1.1);
+  g.addColorStop(0, '#ff8cc6'); g.addColorStop(0.5, '#c92a78'); g.addColorStop(1, '#3a0a24');
+  ctx.fillStyle = g;
+  path(); ctx.fill();
+  ctx.restore();
+}
+function holeShape(x, y, rx, ry, a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = COL.bg;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,190,225,0.6)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(x, y - ry * 0.4, rx * 1.05, ry * 1.1, 0, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  ctx.restore();
+}
+function bLoop(x, y, rx, ry, a) {
+  ctx.save();
+  ctx.globalAlpha = a; ctx.strokeStyle = COL.white; ctx.lineWidth = 3.5;
+  ctx.shadowColor = COL.white; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+function aLoop(x, y, ry, a) {
+  ctx.save();
+  ctx.globalAlpha = a; ctx.strokeStyle = COL.lav; ctx.lineWidth = 3.5;
+  ctx.beginPath(); ctx.ellipse(x, y, 11, ry, 0, Math.PI / 2, 1.5 * Math.PI); ctx.stroke();      // front half
+  ctx.setLineDash([5, 6]); ctx.globalAlpha = a * 0.6;
+  ctx.beginPath(); ctx.ellipse(x, y, 11, ry, 0, -Math.PI / 2, Math.PI / 2); ctx.stroke();       // back half
+  ctx.restore();
+}
+function torus2D(cx, cy, a, loopsA) {
+  if (a <= 0) return;
+  bodyFill(() => { ctx.beginPath(); ctx.ellipse(cx, cy, 150, 95, 0, 0, TAU); }, cx, cy, 150, a);
+  holeShape(cx, cy, 55, 20, a);
+  bLoop(cx, cy, 100, 55, loopsA[0]);
+  aLoop(cx, cy + 57, 35, loopsA[1]);
+}
+function genus2D(cx, cy, a, loopsA) {
+  if (a <= 0) return;
+  const w = 380, h = 190;
+  bodyFill(() => rr(cx - w / 2, cy - h / 2, w, h, h / 2), cx, cy, w / 2, a);
+  for (const hx of [cx - 88, cx + 88]) {
+    holeShape(hx, cy, 48, 18, a);
+    bLoop(hx, cy, 76, 52, loopsA[0]);
+    aLoop(hx, cy + 56, 35, loopsA[1]);
+  }
+}
+
+// Small arrowheads along a closed loop, to show its direction.
+function arrowsOn(pts, c, a) {
+  if (a <= 0) return;
+  for (const f of [0.12, 0.45, 0.78]) {
+    const i = Math.floor(f * (pts.length - 4));
+    arrow(...pts[i], ...pts[i + 3], c, 4, a);
+  }
+}
+
+// The "plane with a hole" panel: loop A bounds a disk, B goes around the hole,
+// C goes around it further out; the strip between B and C has edge C − B.
+const HC = [460, 370], HR = 42;
+const Bfull = wobble(...HC, 125, 0.4, 1.1), Cfull = wobble(...HC, 205, 2.0, 0.3);
+function holePlane(o) {
+  const { a0 = 1, Aq = 1, Afill = 1, Bq = 1, k = 0, Cq = 0, strip = 0, dirB = 0, dirC = 0, flipB = false, Dq = 0, Dfill = 0 } = o;
+  panel(60, 110, 760, 500, 'a plane with a hole', a0);
+  fillPath(circlePts(190, 215, 55), COL.white, 0.22 * Afill);
+  if (Aq > 0) polyline(wobble(190, 215, 55, 0, 0, Aq), COL.white, 4, 1);
+  txt('A', 190, 215, { size: 26, font: MATH, italic: true, weight: 700, alpha: clamp01(Aq * 1.5) });
+  fillPath(Cfull, COL.lav, 0.28 * strip, Bfull);
+  // the attempted filling of B shrinks inward until it stops at the hole
+  fillPath(Bfull, COL.pink, 0.3 * k, circlePts(...HC, lerp(125, HR, k)));
+  dot(...HC, HR, COL.bg, a0);
+  ring(...HC, HR, COL.pink, a0 * (k > 0.98 ? 1 : 0.7), k > 0.98 ? 4 : 2);
+  txt('hole', HC[0], HC[1], { size: 18, color: COL.dim, alpha: a0 });
+  if (Bq > 0) polyline(wobble(...HC, 125, 0.4, 1.1, Bq), COL.pink, 4, 1, 12);
+  if (Cq > 0) polyline(wobble(...HC, 205, 2.0, 0.3, Cq), COL.lav, 4, 1);
+  // loop D: never goes around the hole, so it bounds a region
+  fillPath(circlePts(160, 500, 48), COL.white, 0.22 * Dfill);
+  if (Dq > 0) polyline(wobble(160, 500, 48, 1.3, 0.7, Dq), COL.white, 4, 1);
+  txt('D', 160, 500, { size: 26, font: MATH, italic: true, weight: 700, alpha: clamp01(Dq * 1.5) });
+  arrowsOn(flipB ? [...Bfull].reverse() : Bfull, COL.pink, dirB);
+  if (flipB) txt('−B', HC[0] - 150, HC[1] - 92, { size: 26, font: MATH, italic: true, weight: 700, color: COL.pink, alpha: dirB });
+  arrowsOn(Cfull, COL.lav, dirC);
+  txt('B', HC[0] + 92, HC[1] - 92, { size: 26, font: MATH, italic: true, weight: 700, color: COL.pink, alpha: clamp01(Bq * 1.5) });
+  txt('C', HC[0] + 160, HC[1] - 152, { size: 26, font: MATH, italic: true, weight: 700, color: COL.lav, alpha: clamp01(Cq * 1.5) });
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "In the last video, we saw that an elliptic curve is secretly a torus. Now we need a way to measure shapes like that. How many holes does it have, and what kind? That's what homology does. The trick is not to look at the holes directly, but to look at loops.",
+    draw(p, t) {
+      TORUS({
+        yaw: sway(t, -0.2), cx: 640, cy: 470, scale: 110, alpha: ease(seg(p, 0.03, 0.15)),
+        curves: [
+          { pts: meridian(U0, ease(seg(p, 0.7, 0.82))), c: COL.lav, w: 5 },
+          { pts: longitude(0.75, ease(seg(p, 0.82, 0.95))), c: COL.white, w: 5 },
+        ],
+      });
+      txt('last time:  E(ℂ) = a torus', 640, 110, { size: 24, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.06, 0.16)) });
+      txt('Homology', 640, 205, { size: 72, weight: 700, color: COL.pink, glow: 24, alpha: ease(seg(p, 0.47, 0.55)) });
+      txt('counting holes with loops', 640, 275, { size: 32, weight: 300, alpha: ease(seg(p, 0.6, 0.68)) });
+    },
+  },
+  {
+    title: 'Loops on a sphere',
+    text: 'Start with a sphere. Draw any loop on it. Now slide the loop toward the north pole. It shrinks, and shrinks, and finally collapses to a single point. Every loop on a sphere can do this. Nothing gets in the way, so the sphere has no holes for a loop to catch on.',
+    draw(p, t) {
+      const vlat = lerp(0.56, 0.012, ease(seg(p, 0.3, 0.62)));
+      const q = ease(seg(p, 0.1, 0.24));
+      drawSurface({
+        fn: spherePoint, nu: 40, nv: 24, pitch: 0.55, yaw: t * 0.15, cx: 640, cy: 390, scale: 200,
+        alpha: ease(seg(p, 0, 0.08)),
+        curves: [{ pts: range(120, (s) => [s * q, vlat]), c: COL.white, w: p > 0.6 ? 9 : 5 }],
+      });
+      txt('draw any loop', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.1, 0.16, 0.28, 0.31) });
+      txt('slide it toward the pole… it shrinks', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.31, 0.35, 0.6, 0.63) });
+      txt('…to a single point', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.63, 0.67, 0.78, 0.81) });
+      txt('nothing for a loop to catch on', 640, 92, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.81, 0.87)) });
+      txt('every loop shrinks ✓', 1080, 380, { size: 30, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.88, 0.95)) });
+    },
+  },
+  {
+    title: 'Loops on a torus',
+    text: 'Now try a torus. A small loop on the surface still shrinks to a point, no problem. But this loop, going once around the tube, is different. You can slide it around the torus, but you can never shrink it. The tube is in the way. The same goes for a loop that runs once around the central hole. These two loops, call them a and b, catch on the torus in two different ways.',
+    draw(p, t) {
+      const rho = 0.085 * (1 - ease(seg(p, 0.12, 0.22)));
+      const small = range(80, (s) => [0.38 + rho * 0.42 * Math.cos(TAU * s * ease(seg(p, 0.05, 0.1))), 0.75 + rho * Math.sin(TAU * s * ease(seg(p, 0.05, 0.1)))]);
+      const ua = lerp(0.5, 0.68, ease(seg(p, 0.36, 0.52)));
+      const curves = [];
+      if (p < 0.23) curves.push({ pts: small, c: '#ffd6ec', w: rho < 0.01 ? 9 : 5 });
+      curves.push({ pts: meridian(ua, ease(seg(p, 0.24, 0.32))), c: COL.lav, w: 5 });
+      curves.push({ pts: longitude(0.75, ease(seg(p, 0.58, 0.7))), c: COL.white, w: 5 });
+      TORUS({ yaw: sway(t, -0.25), cx: 640, cy: 400, scale: 150, alpha: ease(seg(p, 0, 0.05)), curves });
+      txt('a small loop still shrinks to a point ✓', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.05, 0.09, 0.21, 0.24) });
+      txt('around the tube: it slides, but never shrinks', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.24, 0.28, 0.54, 0.57) });
+      txt('same for a loop around the hole', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.57, 0.6, 0.74, 0.77) });
+      txt('two different ways to catch', 640, 92, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.77, 0.83)) });
+      const la = ease(seg(p, 0.28, 0.34)), lb = ease(seg(p, 0.66, 0.72));
+      line(70, 170, 104, 170, COL.lav, 5, la);
+      txt('a  around the tube', 118, 170, { size: 24, align: 'left', color: COL.lav, alpha: la });
+      line(70, 215, 104, 215, COL.white, 5, lb);
+      txt('b  around the hole', 118, 215, { size: 24, align: 'left', alpha: lb });
+    },
+  },
+  {
+    title: 'Loops and boundaries',
+    text: "Here's the precise idea behind homology. Instead of asking whether a loop shrinks, ask whether it is a boundary: the edge of some region. On a sphere, every loop is the edge of a cap, so both tests agree. Now take a flat plane with a hole punched in it. Loop A surrounds a little disk, so it is a boundary. Loop B goes around the hole. Try to fill it in, and the filling hits the hole. So B is not a boundary.",
+    draw(p) {
+      txt('is the loop a boundary, the edge of some region?', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.12, 0.16, 0.25, 0.28) });
+      txt('on a sphere, every loop is the edge of a cap: both tests agree', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.28, 0.32, 0.43, 0.46) });
+      // a sphere with a loop and the cap it bounds
+      const ba = fade(p, 0.27, 0.32, 0.43, 0.47);
+      if (ba > 0) {
+        const cx = 640, cy = 390, r = 170, rx = r * Math.cos(Math.PI / 6), ry = 0.24 * rx, ly = cy - r / 2;
+        ball(cx, cy, r, ba);
+        const cap = [
+          ...range(60, (s) => { const ph = lerp(7 * Math.PI / 6, 11 * Math.PI / 6, s); return [cx + r * Math.cos(ph), cy + r * Math.sin(ph)]; }),
+          ...range(60, (s) => [cx + rx * Math.cos(Math.PI * s), ly + ry * Math.sin(Math.PI * s)]),
+        ];
+        fillPath(cap, COL.white, 0.35 * ba * ease(seg(p, 0.35, 0.4)));
+        polyline(range(120, (s) => [cx + rx * Math.cos(TAU * s), ly + ry * Math.sin(TAU * s)]), COL.white, 4, ba);
+        txt('cap', cx, ly - 45, { size: 22, weight: 700, color: COL.bg, alpha: ba * ease(seg(p, 0.36, 0.4)) });
+      }
+      const a0 = ease(seg(p, 0.45, 0.5));
+      if (a0 > 0) {
+        holePlane({
+          a0, Aq: ease(seg(p, 0.55, 0.6)), Afill: ease(seg(p, 0.6, 0.66)),
+          Bq: ease(seg(p, 0.69, 0.74)), k: ease(seg(p, 0.76, 0.85)),
+        });
+      }
+      const RX = 1045;
+      txt('A is the edge of a disk', RX, 190, { size: 24, alpha: ease(seg(p, 0.6, 0.65)) });
+      txt('A is a boundary', RX, 230, { size: 30, weight: 700, alpha: ease(seg(p, 0.64, 0.68)) });
+      txt('any filling of B hits the hole', RX, 330, { size: 24, color: COL.pink, alpha: ease(seg(p, 0.83, 0.87)) });
+      txt('B is not a boundary', RX, 370, { size: 30, weight: 700, color: COL.pink, alpha: ease(seg(p, 0.87, 0.91)) });
+    },
+  },
+  {
+    title: 'Adding loops',
+    text: 'To add loops, just take them together. Running a loop backwards gives its negative. Now draw a loop C outside B, going the same way. The edge of the strip between them is C minus B. Homology counts every boundary as zero. So C minus B is zero, which means C equals B. A loop that never goes around the hole, like D, bounds a region, so it is zero. So every loop is a whole number of copies of B. That is the first homology group, H one. Here it is Z, the integers, counting how many times you wind around the hole.',
+    draw(p) {
+      holePlane({
+        Cq: ease(seg(p, 0.15, 0.22)), strip: ease(seg(p, 0.25, 0.31)),
+        dirB: ease(seg(p, 0.06, 0.09)), flipB: p >= 0.09 && p < 0.14, dirC: ease(seg(p, 0.2, 0.23)),
+        Dq: ease(seg(p, 0.5, 0.56)), Dfill: ease(seg(p, 0.58, 0.62)),
+      });
+      txt('a sum: just take the loops together', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.01, 0.03, 0.12, 0.14) });
+      txt('the strip between B and C', 640, 92, { size: 26, color: COL.lav, alpha: fade(p, 0.24, 0.27, 0.31, 0.33) });
+      txt('every boundary counts as zero', 640, 92, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.33, 0.37)) });
+      const RX = 1045;
+      txt('x + y :  take x and y together', RX, 150, { size: 22, font: MATH, italic: true, alpha: ease(seg(p, 0.02, 0.06)) });
+      txt('−x :  run x backwards', RX, 188, { size: 22, font: MATH, italic: true, alpha: ease(seg(p, 0.08, 0.12)) });
+      txt('edge of the strip = C − B', RX, 245, { size: 24, color: COL.lav, alpha: ease(seg(p, 0.29, 0.33)) });
+      txt('C − B = 0,  so  C = B', RX, 290, { size: 28, font: MATH, italic: true, weight: 700, color: COL.lav, alpha: ease(seg(p, 0.41, 0.47)) });
+      txt('D bounds a region:  D = 0', RX, 335, { size: 24, font: MATH, italic: true, alpha: ease(seg(p, 0.59, 0.63)) });
+      txt('every loop = n · B', RX, 380, { size: 28, font: MATH, italic: true, weight: 700, alpha: ease(seg(p, 0.66, 0.72)) });
+      txt('H₁ = loops / boundaries', RX, 450, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.76, 0.8)) });
+      txt('here  H₁ = ℤ', RX, 500, { size: 32, font: MATH, weight: 700, alpha: ease(seg(p, 0.83, 0.86)) });
+      txt('the number of times you wind around the hole', RX, 540, { size: 18, color: COL.soft, alpha: ease(seg(p, 0.87, 0.91)) });
+    },
+  },
+  {
+    title: 'Loops on the glued square',
+    text: 'Back on the glued square from the last video, a straight line across the square becomes a loop on the torus. A horizontal line is the loop b, around the hole. A vertical line is the loop a, around the tube. A diagonal goes across once and up once, so it is a plus b. A shallower line goes across three times and up twice: three b plus two a. Any loop can be pulled tight into a straight line like these, or a point, without changing it in homology. So the first homology of the torus is Z squared: pairs of whole numbers.',
+    draw(p, t) {
+      const S0 = [110, 210], SZ = 340;
+      const sq = (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+      const sa = ease(seg(p, 0.01, 0.07));
+      if (sa > 0) {
+        ctx.save();
+        ctx.globalAlpha = sa; ctx.fillStyle = 'rgba(255,79,163,0.14)';
+        ctx.fillRect(S0[0], S0[1], SZ, SZ);
+        ctx.restore();
+      }
+      arrow(...sq(0, 0), ...sq(1, 0), COL.white, 3, sa, 1);
+      arrow(...sq(0, 1), ...sq(1, 1), COL.white, 3, sa, 1);
+      arrow(...sq(0, 0), ...sq(0, 1), COL.lav, 3, sa, 2);
+      arrow(...sq(1, 0), ...sq(1, 1), COL.lav, 3, sa, 2);
+      txt('opposite edges glued', S0[0] + SZ / 2, S0[1] - 26, { size: 18, color: COL.dim, alpha: sa });
+
+      // a, b: when the loop draws in; out: when it fades; lab: when its caption fades.
+      // b and a stay up while the diagonal draws, so a + b reads as "across, then up".
+      const loops = [
+        { m: 1, n: 0, c: COL.white, a: 0.19, b: 0.26, out: 0.5, lab: 0.28, label: 'horizontal  →  b, around the hole' },
+        { m: 0, n: 1, c: COL.lav, a: 0.28, b: 0.35, out: 0.5, lab: 0.37, label: 'vertical  →  a, around the tube' },
+        { m: 1, n: 1, c: '#ffd6ec', a: 0.38, b: 0.46, out: 0.5, lab: 0.49, label: 'diagonal: across once, up once  →  a + b' },
+        { m: 3, n: 2, c: COL.white, a: 0.5, b: 0.6, out: 0.68, lab: 0.68, label: 'shallower: across 3, up 2  →  3b + 2a' },
+      ];
+      const curves = [];
+      for (const L of loops) {
+        const vis = fade(p, L.a, L.a + 0.02, L.out, L.out + 0.02);
+        if (vis <= 0) continue;
+        const q = ease(seg(p, L.a, L.b));
+        // on the square: break the path where it wraps across an edge
+        const N = 400, segs = [[]];
+        let prev = null;
+        for (let k = 0; k <= N; k++) {
+          const s = (q * k) / N;
+          const u = mod1(U0 + L.m * s), v = mod1(0.75 + L.n * s);
+          if (prev && (Math.abs(u - prev[0]) > 0.5 || Math.abs(v - prev[1]) > 0.5)) segs.push([]);
+          segs[segs.length - 1].push(sq(u, v));
+          prev = [u, v];
+        }
+        for (const sgm of segs) polyline(sgm, L.c, 4, vis, 10);
+        dot(...sq(U0, 0.75), 6, L.c, vis);
+        if (vis > 0.5) curves.push({ pts: windLoop(L.m, L.n, q), c: L.c, w: 5 });
+        txt(L.label, 640, 92, { size: 26, color: L.c, alpha: fade(p, L.a, L.a + 0.02, L.lab, L.lab + 0.015) });
+      }
+      // a wiggly loop pulled tight into a straight line, on the square and on the torus
+      const wv = fade(p, 0.7, 0.72, 0.87, 0.9);
+      if (wv > 0) {
+        const kk = 1 - ease(seg(p, 0.73, 0.81));
+        const wig = (s) => 0.75 + kk * (0.09 * Math.sin(TAU * 2 * s) + 0.04 * Math.sin(TAU * 5 * s + 1));
+        polyline(range(200, (s) => sq(s, wig(s))), '#ffd6ec', 4, wv, 10);
+        if (wv > 0.5) curves.push({ pts: range(200, (s) => [U0 + s, wig(s)]), c: '#ffd6ec', w: 5 });
+      }
+      TORUS({ yaw: sway(t, -0.25), cx: 880, cy: 390, scale: 135, alpha: ease(seg(p, 0.03, 0.1)), curves });
+      txt('pull any loop tight: same in homology', 640, 92, { size: 26, color: COL.soft, alpha: fade(p, 0.7, 0.72, 0.81, 0.83) });
+      txt('every loop  ≃  m·b + n·a', 640, 92, { size: 30, font: MATH, italic: true, color: COL.soft, alpha: fade(p, 0.83, 0.85, 0.88, 0.9) });
+      txt('H₁(torus) = ℤ²', 640, 92, { size: 40, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.89, 0.94)) });
+    },
+  },
+  {
+    title: 'More holes',
+    text: 'A sphere has no loops that catch, so its first homology is zero. A torus has one handle, which gives two loops: a and b. A surface with two handles has four, so its first homology is Z to the fourth. A big loop around both holes adds nothing new: the outer loop minus b one minus b two is the edge of the shaded region, so the outer loop equals b one plus b two. In general, a surface of genus g has first homology Z to the power two g.',
+    draw(p) {
+      const cy = 320;
+      const s1 = ease(seg(p, 0, 0.05)), s2 = ease(seg(p, 0.13, 0.17)), s3 = ease(seg(p, 0.26, 0.3));
+      ball(200, cy, 95, s1);
+      torus2D(560, cy, s2, [ease(seg(p, 0.21, 0.24)), ease(seg(p, 0.23, 0.26))]);
+      genus2D(990, cy, s3, [ease(seg(p, 0.3, 0.34)), ease(seg(p, 0.32, 0.36))]);
+      // a big loop around both holes, and the region it bounds together with b₁ and b₂
+      const G = [990, cy], BX = 178, BY = 84;
+      const ra = ease(seg(p, 0.62, 0.67));
+      if (ra > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.3 * ra; ctx.fillStyle = '#ffd6ec';
+        ctx.beginPath();
+        ctx.ellipse(...G, BX, BY, 0, 0, TAU);
+        for (const hx of [G[0] - 88, G[0] + 88]) { ctx.moveTo(hx + 76, cy); ctx.ellipse(hx, cy, 76, 52, 0, 0, TAU); }
+        ctx.fill('evenodd');
+        ctx.restore();
+      }
+      const bq = ease(seg(p, 0.43, 0.5));
+      if (bq > 0) polyline(range(160, (s) => [G[0] + BX * Math.cos(TAU * bq * s), cy + BY * Math.sin(TAU * bq * s)]), '#ffd6ec', 4, 1, 12);
+      // orientations: all three loops run the same way, so the region's edge is outer − b₁ − b₂
+      const da = ease(seg(p, 0.53, 0.58));
+      arrowsOn(range(160, (s) => [G[0] + BX * Math.cos(TAU * s), cy + BY * Math.sin(TAU * s)]), '#ffd6ec', da);
+      for (const hx of [G[0] - 88, G[0] + 88]) arrowsOn(range(120, (s) => [hx + 76 * Math.cos(TAU * s), cy + 52 * Math.sin(TAU * s)]), COL.white, da);
+      const col = (x, name, h, a) => {
+        txt(name, x, 480, { size: 22, color: COL.soft, alpha: a });
+        txt(h, x, 525, { size: 34, font: MATH, weight: 700, alpha: a });
+      };
+      col(200, 'sphere · genus 0', 'H₁ = 0', ease(seg(p, 0.07, 0.12)));
+      col(560, 'torus · genus 1', 'H₁ = ℤ²', ease(seg(p, 0.24, 0.28)));
+      col(990, 'genus 2', 'H₁ = ℤ⁴', ease(seg(p, 0.37, 0.41)));
+      txt('outer loop = b₁ + b₂', 990, 570, { size: 24, font: MATH, italic: true, color: '#ffd6ec', alpha: ease(seg(p, 0.71, 0.76)) });
+      txt('each handle: one loop around the hole, one around the tube', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.15, 0.2, 0.39, 0.42) });
+      txt('a loop around both holes?', 640, 92, { size: 26, color: '#ffd6ec', alpha: fade(p, 0.43, 0.46, 0.51, 0.53) });
+      txt('outer − b₁ − b₂  =  edge of the shaded region', 640, 92, { size: 26, font: MATH, italic: true, color: '#ffd6ec', alpha: fade(p, 0.54, 0.57, 0.76, 0.78) });
+      txt('genus g  →  H₁ = ℤ²ᵍ', 640, 92, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.79, 0.85)) });
+    },
+  },
+  {
+    title: "Euler's formula",
+    text: "Homology explains an old formula of Euler. Build a shape out of vertices, edges, and faces, and compute V minus E plus F. For a tetrahedron, that's four minus six plus four, which is two. For the torus, use the glued square: one corner point, two edges, one face. One minus two plus one is zero. Why? Build the shape piece by piece. Each vertex starts a new piece. Each edge either joins two pieces or closes a new loop. Each face either fills a loop or seals off a closed shell. What survives is pieces, minus unfilled loops, plus shells: H zero, H one, and H two. A genus g surface has one piece and two g loops, and the surface encloses one closed shell. So we get one, minus two g, plus one.",
+    draw(p) {
+      const ex = 1 - ease(seg(p, 0.4, 0.44)); // the two examples clear away for the explanation
+      // tetrahedron (seen from slightly above)
+      const A = [300, 165], B = [150, 440], C = [450, 440], D = [325, 370];
+      const fa = ex * ease(seg(p, 0.1, 0.13));
+      for (const tri of [[A, B, C], [A, B, D], [A, C, D], [B, C, D]]) fillPath(tri, COL.pink, 0.16 * fa);
+      const ea = ex * ease(seg(p, 0.09, 0.12));
+      for (const [P1, P2] of [[A, B], [A, C], [B, C], [A, D], [B, D], [C, D]]) line(...P1, ...P2, COL.white, 2.5, ea);
+      const va = ex * ease(seg(p, 0.07, 0.1));
+      for (const P0 of [A, B, C, D]) dot(...P0, 8, COL.pink, va, 12);
+      txt('tetrahedron', 300, 490, { size: 22, color: COL.soft, alpha: va });
+      txt('V − E + F', 300, 535, { size: 26, font: MATH, italic: true, alpha: ex * ease(seg(p, 0.13, 0.17)) });
+      txt('4 − 6 + 4 = 2', 300, 575, { size: 30, font: MATH, weight: 700, color: COL.pink, alpha: ex * ease(seg(p, 0.19, 0.24)) });
+      // glued square = torus
+      const S0 = [750, 175], SZ = 260;
+      const sq = (u, v) => [S0[0] + u * SZ, S0[1] + SZ - v * SZ];
+      const qa = ex * ease(seg(p, 0.25, 0.29));
+      fillPath([sq(0, 0), sq(1, 0), sq(1, 1), sq(0, 1)], COL.pink, ex * (0.14 * qa + 0.2 * ease(seg(p, 0.33, 0.35))));
+      const eh = ease(seg(p, 0.31, 0.33));
+      arrow(...sq(0, 0), ...sq(1, 0), COL.white, 3 + 2 * eh, qa, 1);
+      arrow(...sq(0, 1), ...sq(1, 1), COL.white, 3 + 2 * eh, qa, 1);
+      arrow(...sq(0, 0), ...sq(0, 1), COL.lav, 3 + 2 * eh, qa, 2);
+      arrow(...sq(1, 0), ...sq(1, 1), COL.lav, 3 + 2 * eh, qa, 2);
+      const ca = ex * ease(seg(p, 0.29, 0.32));
+      for (const [u, v] of [[0, 0], [1, 0], [0, 1], [1, 1]]) dot(...sq(u, v), 9, COL.pink, Math.max(qa * 0.5, ca), 14 * ca);
+      txt('torus (glued square)', 880, 490, { size: 22, color: COL.soft, alpha: qa });
+      txt('1 vertex · 2 edges · 1 face', 880, 535, { size: 24, alpha: ex * ease(seg(p, 0.3, 0.35)) });
+      txt('1 − 2 + 1 = 0', 880, 575, { size: 30, font: MATH, weight: 700, color: COL.pink, alpha: ex * ease(seg(p, 0.35, 0.39)) });
+      txt('all 4 corners are one point', 880, 140, { size: 18, color: COL.dim, alpha: ex * ease(seg(p, 0.3, 0.33)) });
+      // why: build the shape piece by piece (a sketch)
+      txt('why?  build it piece by piece', 640, 92, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: fade(p, 0.4, 0.44, 0.64, 0.67) });
+      const rule = (y, s, a) => txt(s, 640, y, { size: 22, color: COL.soft, alpha: a });
+      rule(170, 'each vertex  →  +1 piece', ease(seg(p, 0.45, 0.49)));
+      rule(210, 'each edge  →  joins two pieces (−1 piece)  or  closes a loop (+1 loop)', ease(seg(p, 0.49, 0.54)));
+      rule(250, 'each face  →  fills a loop (−1 loop)  or  seals a closed shell (+1 shell)', ease(seg(p, 0.57, 0.62)));
+      txt('V − E + F  =  pieces − loops + shells', 640, 92, { size: 32, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.66, 0.7)) });
+      const terms = [
+        { x: 440, h: 'H₀', what: 'connected pieces', n: '1', a: ease(seg(p, 0.71, 0.74)), na: ease(seg(p, 0.79, 0.82)) },
+        { x: 640, h: 'H₁', what: 'unfilled loops', n: '2g', a: ease(seg(p, 0.73, 0.76)), na: ease(seg(p, 0.82, 0.85)) },
+        { x: 840, h: 'H₂', what: 'closed shells', n: '1', a: ease(seg(p, 0.75, 0.78)), na: ease(seg(p, 0.86, 0.89)) },
+      ];
+      for (const T of terms) {
+        txt(T.h, T.x, 330, { size: 40, font: MATH, weight: 700, alpha: T.a });
+        txt(T.what, T.x, 375, { size: 20, color: COL.soft, alpha: T.a });
+        txt(T.n, T.x, 440, { size: 44, font: MATH, weight: 700, color: COL.pink, glow: 12, alpha: T.na });
+      }
+      for (const [x, s, a, na] of [[540, '−', terms[1].a, terms[1].na], [740, '+', terms[2].a, terms[2].na]]) {
+        txt(s, x, 330, { size: 40, font: MATH, alpha: a });
+        txt(s, x, 440, { size: 44, font: MATH, color: COL.pink, alpha: na });
+      }
+      txt('1 − 2g + 1  =  2 − 2g', 640, 515, { size: 32, font: MATH, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.92, 0.96)) });
+    },
+  },
+  {
+    title: 'Recap',
+    text: "So here's what to remember. Homology counts independent loops, and boundaries count as zero. A sphere has none, a torus has two, a genus g surface has two g. For an elliptic curve, lift loop b to the plane: it becomes a path from zero to omega one, so integrating d z along it gives omega one. Loop a gives omega two the same way. Hold on to that number two. When we count points modulo a prime, it comes back.",
+    draw(p, t) {
+      TORUS({
+        yaw: sway(t, -0.3), cx: 900, cy: 380, scale: 130, alpha: fade(p, 0, 0.05, 0.36, 0.41),
+        curves: [{ pts: meridian(U0), c: COL.lav, w: 5 }, { pts: longitude(0.75), c: COL.white, w: 5 }],
+      });
+      // the lattice of periods in the plane; loop b lifts to the path 0 → ω₁, loop a to 0 → ω₂
+      const la = ease(seg(p, 0.38, 0.44));
+      if (la > 0) {
+        const O = [720, 500], w1 = [190, 0], w2 = [70, -150];
+        const at = (n, m) => [O[0] + n * w1[0] + m * w2[0], O[1] + n * w1[1] + m * w2[1]];
+        fillPath([at(0, 0), at(1, 0), at(1, 1), at(0, 1)], COL.pink, 0.16 * la);
+        for (let n = -1; n <= 3; n++) for (let m = -1; m <= 3; m++) {
+          const [x, y] = at(n, m);
+          if (x > 610 && x < 1250 && y > 150 && y < 640) dot(x, y, 5, COL.soft, la);
+        }
+        txt('the plane ℂ and its lattice of periods', 985, 130, { size: 18, color: COL.dim, alpha: la });
+        txt('0', O[0] - 16, O[1] + 22, { size: 22, font: MATH, alpha: la });
+        const q1 = ease(seg(p, 0.45, 0.53)), q2 = ease(seg(p, 0.66, 0.72));
+        if (q1 > 0) arrow(...O, ...at(q1, 0), COL.white, 4, 1);
+        if (q2 > 0) arrow(...O, ...at(0, q2), COL.lav, 4, 1);
+        txt('ω₁', at(1, 0)[0], O[1] + 26, { size: 26, font: MATH, italic: true, alpha: ease(seg(p, 0.52, 0.56)) });
+        txt('ω₂', at(0, 1)[0] - 28, at(0, 1)[1] - 6, { size: 26, font: MATH, italic: true, color: COL.lav, alpha: ease(seg(p, 0.7, 0.74)) });
+      }
+      const X = 70;
+      const row = (y, s, a, o = {}) => txt(s, X, y, { size: 27, align: 'left', alpha: a, ...o });
+      row(160, 'H₁ counts independent loops', ease(seg(p, 0.06, 0.12)));
+      row(205, 'boundaries count as 0', ease(seg(p, 0.11, 0.17)), { color: COL.soft });
+      row(270, 'sphere 0 · torus ℤ² · genus g ℤ²ᵍ', ease(seg(p, 0.17, 0.25)), { font: MATH });
+      row(345, 'H₁(E(ℂ)) = ℤ²', ease(seg(p, 0.33, 0.38)), { font: MATH, size: 34, weight: 700, color: COL.pink });
+      row(395, 'b lifts to 0 → ω₁:   ∫ dz = ω₁', ease(seg(p, 0.56, 0.62)), { font: MATH, italic: true, size: 25 });
+      row(437, 'a lifts to 0 → ω₂:   ∫ dz = ω₂', ease(seg(p, 0.68, 0.73)), { font: MATH, italic: true, size: 25, color: COL.lav });
+      txt('remember this 2.', X, 515, { size: 40, align: 'left', weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(p, 0.76, 0.81)) });
+      txt('next: counting points mod p', X, 565, { size: 22, align: 'left', color: COL.dim, alpha: ease(seg(p, 0.84, 0.9)) });
+    },
+  },
+];
+
+startVideo({ title: 'Homology: counting holes with loops', scenes });
+</script>
+</body>
+</html>

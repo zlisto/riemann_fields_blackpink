@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elliptic Curve Torus</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── scene art ─────────────────────────────
+const fx = (x) => { const x3 = cmul(cmul(x, x), x); return [x3[0] - x[0], x3[1] - x[1]]; };
+
+const REAL = (() => {
+  const cs = (a, b, N) => { const xs = []; for (let k = 0; k <= N; k++) xs.push(a + ((b - a) * (1 - Math.cos((Math.PI * k) / N))) / 2); return xs; };
+  const yv = (x) => Math.sqrt(Math.max(0, x * x * x - x));
+  const ov = cs(-1, 0, 140), br = cs(1, 1.95, 140);
+  return {
+    oval: [...ov.map((x) => [x, yv(x)]), ...ov.slice().reverse().map((x) => [x, -yv(x)])],
+    branch: [...br.slice().reverse().map((x) => [x, -yv(x)]), ...br.map((x) => [x, yv(x)])],
+  };
+})();
+
+const LOOP_A = { c: [1, 0], r: 0.5 }, LOOP_B = { c: [0.5, 0], r: 0.95 }, LOOP_C = { c: [0, 0], r: 1.5 };
+// Follow one square root continuously while x travels a fraction q of the loop.
+function track(loop, q) {
+  const N = Math.max(2, Math.ceil(260 * q));
+  const xs = [], ys = [];
+  let prev = null;
+  for (let k = 0; k <= N; k++) {
+    const th = (TAU * q * k) / N;
+    const x = [loop.c[0] + loop.r * Math.cos(th), loop.c[1] + loop.r * Math.sin(th)];
+    let w = csqrt(fx(x));
+    if (prev && (w[0] - prev[0]) ** 2 + (w[1] - prev[1]) ** 2 > (w[0] + prev[0]) ** 2 + (w[1] + prev[1]) ** 2) w = [-w[0], -w[1]];
+    prev = w; xs.push(x); ys.push(w);
+  }
+  return { xs, ys };
+}
+
+function tube(x0, x1, y, ry) {
+  if (x1 - x0 <= 0) return;
+  const g = ctx.createLinearGradient(0, y - ry, 0, y + ry);
+  g.addColorStop(0, '#3a0a24'); g.addColorStop(0.35, '#ff6fb6'); g.addColorStop(1, '#2a0718');
+  ctx.fillStyle = g;
+  ctx.fillRect(x0, y - ry, x1 - x0, 2 * ry);
+}
+function cap(x, y, rx, ry) {
+  ctx.save();
+  ctx.fillStyle = '#5a1238'; ctx.strokeStyle = COL.soft; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+// Weierstrass lattice: origin, periods, and a parallelogram helper.
+const LO = [300, 430], LW1 = [150, 0], LW2 = [55, -135];
+const lpt = (m, n) => [LO[0] + m * LW1[0] + n * LW2[0], LO[1] + m * LW1[1] + n * LW2[1]];
+const inLatBox = ([x, y]) => x > 50 && x < 770 && y > 90 && y < 620;
+// dots of Λ; appear(d) gives each dot's alpha from its distance d to 0
+function latticeDots(appear) {
+  for (let m = -4; m <= 5; m++) for (let n = -2; n <= 3; n++) {
+    const q = lpt(m, n);
+    if (inLatBox(q)) dot(...q, 4.5, COL.white, 0.75 * appear(Math.hypot(m, n), q));
+  }
+}
+function periods(wa) {
+  arrow(...LO, ...lpt(1, 0), COL.white, 3, wa);
+  arrow(...LO, ...lpt(0, 1), COL.lav, 3, wa);
+  txt('ω₁', lpt(1, 0)[0] - 30, LO[1] + 24, { size: 24, font: MATH, italic: true, alpha: wa });
+  txt('ω₂', lpt(0, 1)[0] - 34, lpt(0, 1)[1] + 10, { size: 24, font: MATH, italic: true, color: COL.lav, alpha: wa });
+}
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "Here's a strange fact. Take an elliptic curve, like y squared equals x cubed, plus a times x, plus b, and let x and y be complex numbers. It's called a curve because it has one complex dimension, which is two real dimensions. As long as the cubic has three distinct roots, the solutions, plus one point at infinity, form a torus: the surface of a donut. Let's see why.",
+    draw(p, t) {
+      drawSurface({ yaw: t * 0.45, pitch: 1.05, cx: 640, cy: 520, scale: 115, alpha: ease(seg(p, 0.76, 0.85)) });
+      txt('An elliptic curve', 640, 150, { size: 62, weight: 300, alpha: ease(seg(p, 0.04, 0.1)) });
+      txt('y² = x³ + ax + b', 640, 245, { size: 40, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.11, 0.17)) });
+      txt('with  x, y ∈ ℂ', 640, 298, { size: 28, font: MATH, italic: true, color: COL.white, alpha: ease(seg(p, 0.27, 0.31)) });
+      txt('“curve”: 1 complex dimension', 230, 470, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.465, 0.5)) });
+      txt('(= 2 real dimensions)', 230, 505, { size: 19, color: COL.dim, alpha: ease(seg(p, 0.51, 0.55)) });
+      txt('if the cubic has 3 distinct roots,', 1050, 470, { size: 20, color: COL.dim, alpha: ease(seg(p, 0.575, 0.62)) });
+      txt('solutions + one point at ∞', 1050, 505, { size: 22, color: COL.soft, alpha: ease(seg(p, 0.69, 0.75)) });
+      txt('is a torus.', 640, 365, { size: 64, weight: 700, color: COL.pink, glow: 24, alpha: ease(seg(p, 0.79, 0.84)) });
+    },
+  },
+  {
+    title: 'The real picture',
+    text: 'First, the familiar picture. Over the real numbers, y squared equals x cubed minus x is a curve in the plane. Here it has two pieces: a closed loop, and a branch that runs off to infinity. One equation in two real unknowns leaves one dimension. That is a curve.',
+    draw(p) {
+      const ox = 480, oy = 370, s = 120;
+      const X = (x) => ox + x * s, Y = (y) => oy - y * s;
+      const a = ease(seg(p, 0, 0.08));
+      line(X(-2.2), oy, X(2.3), oy, COL.dim, 1.5, a);
+      line(ox, Y(2.45), ox, Y(-2.45), COL.dim, 1.5, a);
+      txt('x', X(2.3) + 16, oy, { size: 20, color: COL.dim, font: MATH, italic: true, alpha: a });
+      txt('y', ox, Y(2.45) - 16, { size: 20, color: COL.dim, font: MATH, italic: true, alpha: a });
+      const r = ease(seg(p, 0.12, 0.45));
+      const toScreen = (pts) => pts.slice(0, Math.max(1, Math.floor(r * (pts.length - 1)) + 1)).map(([x, y]) => [X(x), Y(y)]);
+      polyline(toScreen(REAL.oval), COL.pink, 4, 1, 14);
+      polyline(toScreen(REAL.branch), COL.pink, 4, 1, 14);
+      const ra = ease(seg(p, 0.45, 0.55));
+      for (const x0 of [-1, 0, 1]) {
+        dot(X(x0), oy, 6, COL.white, ra, 10);
+        txt(String(x0).replace('-', '−'), X(x0) + (x0 === 0 ? 14 : 0), oy + 24, { size: 18, color: COL.dim, alpha: ra });
+      }
+      txt('y² = x³ − x', 1000, 170, { size: 44, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.04, 0.14)) });
+      txt('x, y ∈ ℝ', 1000, 235, { size: 30, font: MATH, italic: true, alpha: ease(seg(p, 0.15, 0.25)) });
+      txt('1 equation, 2 unknowns', 1000, 350, { size: 28, alpha: ease(seg(p, 0.66, 0.74)) });
+      txt('2 − 1 = 1 dimension', 1000, 400, { size: 28, alpha: ease(seg(p, 0.74, 0.82)) });
+      txt('a curve', 1000, 475, { size: 44, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.88, 0.96)) });
+    },
+  },
+  {
+    title: 'Counting dimensions',
+    text: "Now let x and y be complex. Each complex number hides two real numbers, so there are four real unknowns. And one complex equation is really two real equations: one for the real part, and one for the imaginary part. Four minus two is two. So the solutions form a two dimensional surface, sitting in four dimensional space. We can't draw that directly, so we have to be clever.",
+    draw(p) {
+      const f = (a, b) => ease(seg(p, a, b));
+      txt('x = x₁ + i·x₂', 430, 140, { size: 38, font: MATH, italic: true, alpha: f(0.04, 0.12) });
+      txt('y = y₁ + i·y₂', 850, 140, { size: 38, font: MATH, italic: true, alpha: f(0.1, 0.18) });
+      txt('→  4 real unknowns', 640, 205, { size: 28, weight: 600, color: COL.pink, alpha: f(0.22, 0.3) });
+      txt('y² = x³ + ax + b', 640, 295, { size: 42, font: MATH, italic: true, color: COL.soft, alpha: f(0.3, 0.37) });
+      const b = f(0.38, 0.5);
+      for (const [cx, label] of [[420, 'real parts match'], [860, 'imaginary parts match']]) {
+        if (b <= 0) continue;
+        ctx.save();
+        ctx.globalAlpha = b;
+        ctx.fillStyle = 'rgba(255,79,163,0.08)'; ctx.strokeStyle = 'rgba(255,79,163,0.5)'; ctx.lineWidth = 1.5;
+        rr(cx - 170, 330, 340, 52, 12); ctx.fill(); ctx.stroke();
+        ctx.restore();
+        txt(label, cx, 356, { size: 24, alpha: b });
+      }
+      txt('→  2 real equations', 640, 425, { size: 28, weight: 600, color: COL.pink, alpha: f(0.5, 0.56) });
+      txt('4 − 2 = 2', 640, 505, { size: 64, weight: 700, glow: 18, color: COL.white, alpha: f(0.56, 0.63) });
+      txt('a 2-dimensional surface, living in ℝ⁴', 640, 568, { size: 26, color: COL.soft, alpha: f(0.64, 0.74) });
+    },
+  },
+  {
+    title: 'Two sheets',
+    text: 'Solve for y: plus or minus the square root of x cubed minus x. So above almost every x sit two points of the surface: two sheets. Now watch x walk once around the root at x equals one, and watch the pink y dot end up exactly where minus y started. The sheets have swapped. But if x circles two roots at once, the two swaps cancel. Now take a huge loop around all three roots: an odd number of swaps. Seen from infinity, that huge loop is a tiny loop around infinity alone, so infinity is a swapping point too. The swapping points are the three roots, and infinity.',
+    draw(p) {
+      const a0 = ease(seg(p, 0, 0.06));
+      txt('y = ±√(x³ − x)', 640, 82, { size: 34, font: MATH, italic: true, color: COL.soft, alpha: a0 });
+      panel(60, 115, 560, 490, 'x-plane', a0);
+      panel(660, 115, 560, 490, 'y-plane', a0);
+      const XC = [340, 360], YC = [940, 360], sx = 120, sy = 105;
+      const mx = (z) => [XC[0] + z[0] * sx, XC[1] - z[1] * sx];
+      const my = (w) => [YC[0] + w[0] * sy, YC[1] - w[1] * sy];
+      line(80, XC[1], 600, XC[1], 'rgba(255,255,255,0.12)', 1, a0);
+      line(XC[0], 150, XC[0], 590, 'rgba(255,255,255,0.12)', 1, a0);
+      line(680, YC[1], 1200, YC[1], 'rgba(255,255,255,0.12)', 1, a0);
+      line(YC[0], 150, YC[0], 590, 'rgba(255,255,255,0.12)', 1, a0);
+      for (const r of [-1, 0, 1]) {
+        const [x, y] = mx([r, 0]);
+        dot(x, y, 6, COL.white, a0, 10);
+        txt(String(r).replace('-', '−'), x, y + 24, { size: 17, color: COL.dim, alpha: a0 });
+      }
+      const phase = p < 0.485 ? 0 : p < 0.6 ? 1 : 2;
+      const loop = [LOOP_A, LOOP_B, LOOP_C][phase];
+      const q = ease(phase === 0 ? seg(p, 0.24, 0.45) : phase === 1 ? seg(p, 0.49, 0.56) : seg(p, 0.61, 0.75));
+      const tr = track(loop, q);
+      const [lcx, lcy] = mx(loop.c);
+      // loop B (and its y-path) fades out before the big loop starts
+      const la = phase === 1 ? 1 - ease(seg(p, 0.575, 0.6)) : phase === 2 ? ease(seg(p, 0.6, 0.62)) : 1;
+      ctx.save();
+      ctx.setLineDash([6, 8]);
+      ring(lcx, lcy, loop.r * sx, phase === 2 ? COL.pink : COL.soft, (phase === 2 ? 0.6 : 0.35) * a0 * la, phase === 2 ? 2.5 : 1.5);
+      ctx.restore();
+      polyline(tr.xs.map(mx), COL.pink, 3, la, 10);
+      polyline(tr.ys.map(my), COL.pink, 3, la, 10);
+      const xc = tr.xs[tr.xs.length - 1], yc = tr.ys[tr.ys.length - 1], y0 = tr.ys[0];
+      ring(...my(y0), 13, COL.soft, 0.6 * a0);
+      const hl = phase === 0 ? fade(p, 0.34, 0.37, 0.47, 0.485) : 0;
+      const my0 = my([-y0[0], -y0[1]]);
+      ring(...my0, 13 + 4 * hl, COL.white, (0.35 + 0.6 * hl) * a0, 2 + hl);
+      txt('−y started here', my0[0], my0[1] + 34, { size: 17, color: COL.white, alpha: hl * a0 });
+      if (phase === 2) txt('→ ∞', XC[0] + 160, XC[1] - 158, { size: 24, color: COL.pink, weight: 600, alpha: ease(seg(p, 0.71, 0.74)) });
+      const ym = my([-yc[0], -yc[1]]), yp = my(yc), xp = mx(xc);
+      dot(...ym, 8, COL.white, a0, 8);
+      txt('−y', ym[0] + 22, ym[1] - 20, { size: 22, font: MATH, italic: true, alpha: a0 });
+      dot(...yp, 9, COL.pink, a0, 16);
+      txt('y', yp[0] + 20, yp[1] - 20, { size: 22, font: MATH, italic: true, color: COL.pink, alpha: a0 });
+      dot(...xp, 9, COL.pink, a0, 16);
+      txt('x', xp[0] + 18, xp[1] - 18, { size: 22, font: MATH, italic: true, color: COL.pink, alpha: a0 });
+      txt('every x has two y’s: two sheets', 640, 640, { size: 24, color: COL.soft, alpha: fade(p, 0.13, 0.17, 0.25, 0.28) });
+      txt('one root inside the loop → the two values swap', 640, 640, { size: 24, color: COL.pink, weight: 600, alpha: fade(p, 0.445, 0.46, 0.475, 0.485) });
+      txt('two roots inside → the swaps cancel', 640, 640, { size: 24, color: COL.pink, weight: 600, alpha: fade(p, 0.55, 0.565, 0.585, 0.6) });
+      txt('three roots inside → an odd number of swaps', 640, 640, { size: 24, color: COL.pink, weight: 600, alpha: fade(p, 0.66, 0.68, 0.7, 0.715) });
+      txt('seen from ∞: a tiny loop around ∞ alone', 640, 640, { size: 24, color: COL.pink, weight: 600, alpha: fade(p, 0.715, 0.735, 0.86, 0.875) });
+      txt('swapping points:  −1, 0, 1, and ∞', 640, 640, { size: 24, color: COL.pink, weight: 600, alpha: ease(seg(p, 0.875, 0.9)) });
+    },
+  },
+  {
+    title: 'Close up the planes',
+    text: "Here's the recipe. For now, pretend the sheets are separate. Take two copies of the x plane, one per sheet. Wrap each plane around a ball, and pinch its whole far edge to a single point: the point at infinity. Now each sheet is a sphere.",
+    draw(p, t) {
+      const k = ease(seg(p, 0.39, 0.68));
+      const pitch = 0.45;
+      const scale = lerp(78, 165, k);
+      // a disk of radius π rolled onto spheres of radius 1/k; at k = 1 its rim pinches to one point
+      const fn = (u, v) => {
+        const s = Math.PI * v, ang = TAU * u;
+        if (k < 1e-3) return [s * Math.cos(ang), 0, s * Math.sin(ang)];
+        const Rk = 1 / k, ph = s * k;
+        return [Rk * Math.sin(ph) * Math.cos(ang), Rk * (1 - Math.cos(ph)), Rk * Math.sin(ph) * Math.sin(ang)];
+      };
+      const a = ease(seg(p, 0, 0.07));
+      const rim = ease(seg(p, 0.51, 0.56));
+      for (const [cx, lab] of [[360, 'sheet  y = +√'], [920, 'sheet  y = −√']]) {
+        drawSurface({ fn, yaw: 0.3 + t * 0.25, pitch, cx, cy: 360, scale, alpha: a, nu: 40, nv: 14, hv: rim > 0 ? [{ j: 14, c: COL.white, w: 2 + 2 * rim }] : [] });
+        txt(lab, cx, 167, { size: 20, color: COL.soft, font: MATH, italic: true, alpha: ease(seg(p, 0.2, 0.25)) });
+        // north pole = the pinched rim = ∞
+        const D = 9, ya = (scale * D * Math.cos(pitch)) / (D - Math.sin(pitch));
+        const ia = ease(seg(p, 0.71, 0.76));
+        dot(cx, 360 - ya, 7, COL.white, ia, 12);
+        txt('∞', cx + 30, 360 - ya, { size: 30, color: COL.white, weight: 700, alpha: ia });
+      }
+      txt('for now, treat the two sheets as separate', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.05, 0.1, 0.17, 0.2) });
+      txt('two copies of the x-plane', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.2, 0.24, 0.36, 0.39) });
+      txt('wrap each plane around a ball…', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.39, 0.42, 0.48, 0.51) });
+      txt('…and pinch the whole far edge to one point: ∞', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.51, 0.54, 0.76, 0.79) });
+      txt('each sheet is a sphere  (x-plane + ∞)', 640, 92, { size: 30, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.79, 0.84)) });
+    },
+  },
+  {
+    title: 'Cut and glue',
+    text: "Cut each sphere along two slits: from minus one to zero, and from one to infinity. Why those? Each slit joins two swapping points. A loop that doesn't cross a slit circles none or two of them, and two swaps cancel. So the only way to switch sheets is to cross a slit. Open the slits into holes, and connect the spheres with tubes. Follow a loop: across the top tube, through the other sphere, and back along the bottom tube. The gap between the tubes is the hole of the donut. Now shrink the spheres and swell the tubes: a torus.",
+    draw(p, t, dur) {
+      const m = ease(seg(p, 0.86, 0.92));                 // shrink spheres, swell tubes
+      const cf = ease(seg(p, 0.91, 0.95));                 // crossfade into the 3D torus
+      const r = lerp(165, 125, m), ry = lerp(34, 42, m), hy = lerp(78, 95, m), hx = lerp(118, 85, m);
+      const L = [lerp(360, 495, m), 360], R = [lerp(920, 785, m), 360];
+      const a = ease(seg(p, 0, 0.04)) * (1 - cf);
+      ball(...L, r, a); ball(...R, r, a);
+      const la0 = a * (1 - m);
+      txt('sheet  y = +√', L[0], L[1] - r - 28, { size: 20, color: COL.soft, font: MATH, italic: true, alpha: la0 });
+      txt('sheet  y = −√', R[0], R[1] - r - 28, { size: 20, color: COL.soft, font: MATH, italic: true, alpha: la0 });
+      const holes = [[L[0] + hx, L[1] - hy], [L[0] + hx, L[1] + hy], [R[0] - hx, R[1] - hy], [R[0] - hx, R[1] + hy]];
+      const sl = ease(seg(p, 0.02, 0.1)), op = ease(seg(p, 0.495, 0.53)), tb = ease(seg(p, 0.54, 0.59));
+      if (cf < 1) {
+        ctx.save();
+        ctx.globalAlpha = 1 - cf;
+        for (const [x, y] of holes) {
+          if (op > 0) {
+            ctx.save();
+            ctx.fillStyle = COL.bg; ctx.strokeStyle = COL.soft; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.ellipse(x, y, 1 + 12 * op, ry, 0, 0, TAU); ctx.fill(); ctx.stroke();
+            ctx.restore();
+          }
+          if (sl > 0 && op < 1) line(x, y - ry * sl, x, y + ry * sl, COL.white, 3, 1 - op);
+        }
+        if (tb > 0) {
+          for (const y of [L[1] - hy, L[1] + hy]) {
+            const lx = L[0] + hx, rx = R[0] - hx, mid = 640;
+            const e1 = lx + (mid - lx) * tb, e2 = rx - (rx - mid) * tb;
+            tube(lx, e1 + (tb >= 1 ? 1 : 0), y, ry);
+            tube(e2, rx, y, ry);
+            if (tb < 1) { cap(e1, y, 12, ry); cap(e2, y, 12, ry); }
+          }
+        }
+        // the gap between the tubes: the hole of the donut
+        const ga = fade(p, 0.755, 0.79, 0.86, 0.9);
+        if (ga > 0) {
+          const bw = Math.sqrt(r * r - (hy - ry) ** 2);
+          const gx0 = L[0] + bw, gx1 = R[0] - bw, gy0 = L[1] - hy + ry, gy1 = L[1] + hy - ry;
+          ctx.save();
+          ctx.globalAlpha = ga * (1 - cf); ctx.fillStyle = 'rgba(201,162,255,0.28)';
+          ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+          ctx.restore();
+          txt('the hole', 640, 360, { size: 22, weight: 700, color: COL.lav, alpha: ga * ease(seg(p, 0.8, 0.84)) });
+        }
+        // a loop: left sphere → top tube → right sphere → bottom tube → back
+        const fl = ease(seg(p, 0.6, 0.73)), fa = fade(p, 0.6, 0.61, 0.85, 0.88);
+        if (fa > 0) {
+          const lx = L[0] + hx, rx = R[0] - hx, rr0 = hy, cy0 = L[1];
+          const path = [];
+          for (let k = 0; k <= 16; k++) { const th = Math.PI + (Math.PI / 2) * (k / 16); path.push([lx + rr0 * Math.cos(th), cy0 + rr0 * Math.sin(th)]); }
+          for (let k = 1; k <= 20; k++) path.push([lerp(lx, rx, k / 20), cy0 - rr0]);
+          for (let k = 1; k <= 32; k++) { const th = -Math.PI / 2 + Math.PI * (k / 32); path.push([rx + rr0 * Math.cos(th), cy0 + rr0 * Math.sin(th)]); }
+          for (let k = 1; k <= 20; k++) path.push([lerp(rx, lx, k / 20), cy0 + rr0]);
+          for (let k = 1; k <= 16; k++) { const th = Math.PI / 2 + (Math.PI / 2) * (k / 16); path.push([lx + rr0 * Math.cos(th), cy0 + rr0 * Math.sin(th)]); }
+          const n = Math.max(2, Math.round(fl * (path.length - 1)) + 1);
+          polyline(path.slice(0, n), COL.white, 3.5, fa * (1 - cf), 10);
+          dot(...path[n - 1], 7, COL.white, fa * (1 - cf), 12);
+        }
+        ctx.restore();
+      }
+      const la = fade(p, 0.05, 0.09, 0.47, 0.5);
+      txt('cut from −1 to 0', 640, 360 - 78, { size: 20, color: COL.white, alpha: la });
+      txt('cut from 1 to ∞', 640, 360 + 78, { size: 20, color: COL.white, alpha: la });
+      // each slit joins two swapping points
+      const ea = fade(p, 0.17, 0.2, 0.47, 0.5);
+      const ends = [['−1', 0, -1], ['0', 0, 1], ['1', 1, -1], ['∞', 1, 1]];
+      for (const [lab, s, e] of ends) {
+        for (const side of [0, 1]) {
+          const [hx0, hy0] = holes[side * 2 + s];
+          const yy = hy0 + e * 34;
+          dot(hx0, yy, 5, COL.pink, ea, 8);
+          txt(lab, hx0 + (side ? 34 : -34), yy, { size: 18, color: COL.pink, weight: 600, alpha: ea });
+        }
+      }
+      // loops that avoid the slits: around no swapping point, or around both ends of one slit
+      const lp = fade(p, 0.225, 0.25, 0.37, 0.39);
+      if (lp > 0) {
+        ctx.save();
+        ctx.setLineDash([5, 6]);
+        ctx.globalAlpha = lp; ctx.strokeStyle = COL.white; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(300, 360, 30, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(holes[0][0], holes[0][1], 24, 54, 0, 0, TAU); ctx.stroke();
+        ctx.restore();
+        txt('none', 300, 360, { size: 17, color: COL.white, alpha: lp });
+      }
+      // crossing a slit = switching sheets
+      const c1 = ease(seg(p, 0.385, 0.42)), c2 = ease(seg(p, 0.42, 0.47)), cv = fade(p, 0.385, 0.4, 0.47, 0.495);
+      if (cv > 0) {
+        const y = holes[0][1];
+        if (c2 <= 0) dot(lerp(410, holes[0][0], c1), y, 8, COL.pink, cv, 14);
+        else dot(lerp(holes[2][0], holes[2][0] + 60, c2), y, 8, COL.pink, cv, 14);
+        if (c1 >= 1) {
+          ctx.save();
+          ctx.setLineDash([6, 7]);
+          ctx.globalAlpha = cv * 0.8; ctx.strokeStyle = COL.pink; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(holes[0][0], y - 40); ctx.quadraticCurveTo(640, y - 150, holes[2][0], y - 40); ctx.stroke();
+          ctx.restore();
+          txt('to the other sheet', 640, y - 132, { size: 18, color: COL.pink, alpha: cv });
+        }
+      }
+      // ...which is the same torus as at the start
+      const tilt = ease(seg(p, 0.93, 1));
+      drawSurface({ yaw: Math.max(0, t - 0.91 * dur) * 0.45, pitch: lerp(1.2, 1.05, tilt), cx: 640, cy: 370, scale: lerp(170, 150, tilt), alpha: cf });
+      txt('cut each sphere along two slits', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.02, 0.05, 0.14, 0.165) });
+      txt('each slit joins two swapping points', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.165, 0.19, 0.205, 0.225) });
+      txt('a loop avoiding the slits circles none or 2 of them → no swap', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.225, 0.25, 0.365, 0.385) });
+      txt('switching sheets = crossing a slit', 640, 92, { size: 24, color: COL.pink, weight: 600, alpha: fade(p, 0.385, 0.4, 0.475, 0.495) });
+      txt('open the slits into holes', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.495, 0.51, 0.525, 0.54) });
+      txt('glue across the cuts with tubes', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.54, 0.555, 0.585, 0.6) });
+      txt('follow a loop: top tube → other sphere → bottom tube → back', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.6, 0.62, 0.735, 0.755) });
+      txt('the gap between the tubes = the hole of the donut', 640, 92, { size: 24, color: COL.lav, weight: 600, alpha: fade(p, 0.755, 0.78, 0.845, 0.86) });
+      txt('shrink the spheres, swell the tubes', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.86, 0.875, 0.915, 0.93) });
+      txt('2 spheres + 2 tubes = a torus', 640, 92, { size: 34, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.93, 0.96)) });
+    },
+  },
+  {
+    title: 'The Weierstrass p function',
+    text: "There's a second, more precise way to see it, thanks to Weierstrass. Pick two complex numbers, omega one and omega two, and take all their integer combinations. That's a lattice, called Lambda. Now add up one over z minus omega, squared, over every lattice point omega, with a small correction so the sum converges. That's the Weierstrass p function. For p prime, its derivative, shifting z just reshuffles the sum; with a little more work, p itself is periodic too. And the pair, p of z and p prime of z, always lands on a curve: y squared equals four x cubed, minus g two times x, minus g three. Same kind of equation, just rescaled.",
+    draw(p) {
+      latticeDots((d) => ease(seg(p, 0.1 + d * 0.02, 0.16 + d * 0.02)));
+      for (let m = -4; m <= 5; m++) for (let n = -2; n <= 3; n++) {
+        const q = lpt(m, n), d = Math.hypot(m, n);
+        if (inLatBox(q)) ring(...q, 10, COL.pink, 0.8 * fade(p, 0.29 + d * 0.01, 0.31 + d * 0.01, 0.38, 0.42), 2);
+      }
+      const oa = ease(seg(p, 0.09, 0.13));
+      dot(...LO, 5, COL.white, oa);
+      txt('0', LO[0] - 16, LO[1] + 18, { size: 18, color: COL.dim, alpha: oa });
+      periods(ease(seg(p, 0.1, 0.16)));
+      const z = lpt(0.62, 0.38);
+      const za = ease(seg(p, 0.52, 0.55));
+      dot(...z, 7, COL.pink, za, 14);
+      txt('z', z[0] + 14, z[1] - 14, { size: 22, font: MATH, italic: true, color: COL.pink, alpha: za });
+      const ta = ease(seg(p, 0.53, 0.59));
+      for (let m = -3; m <= 4; m++) for (let n = -2; n <= 3; n++) {
+        if (!m && !n) continue;
+        const q = [z[0] + m * LW1[0] + n * LW2[0], z[1] + m * LW1[1] + n * LW2[1]];
+        if (inLatBox(q)) dot(...q, 5, COL.soft, ta * 0.85, 8);
+      }
+      txt('every translate z + ω gives the same value', 410, 64, { size: 21, color: COL.soft, alpha: ta });
+      const RX = 1010;
+      txt('Λ = ℤω₁ + ℤω₂', RX, 135, { size: 32, font: MATH, italic: true, alpha: ease(seg(p, 0.22, 0.26)) });
+      txt('℘(z) = 1/z² + Σ [ 1/(z−ω)² − 1/ω² ]', RX, 198, { size: 24, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.264, 0.31)) });
+      txt('sum over every ω ≠ 0 in Λ', RX, 232, { size: 17, color: COL.dim, alpha: ease(seg(p, 0.31, 0.35)) });
+      txt('℘′(z + ω) = ℘′(z)', RX, 280, { size: 28, font: MATH, italic: true, alpha: ease(seg(p, 0.53, 0.56)) });
+      txt('℘(z + ω) = ℘(z)', RX, 320, { size: 28, font: MATH, italic: true, alpha: ease(seg(p, 0.58, 0.62)) });
+      txt('z ↦ (℘(z), ℘′(z))', RX, 380, { size: 30, font: MATH, italic: true, alpha: ease(seg(p, 0.66, 0.7)) });
+      txt('lands on the curve', RX, 416, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.75, 0.78)) });
+      txt('y² = 4x³ − g₂x − g₃', RX, 452, { size: 30, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.79, 0.83)) });
+      txt('same kind as y² = x³ + ax + b, rescaled', RX, 488, { size: 17, color: COL.dim, alpha: ease(seg(p, 0.91, 0.94)) });
+    },
+  },
+  {
+    title: 'One parallelogram',
+    text: "Since shifting z changes nothing, one parallelogram is enough, and it turns out every point of the curve is hit exactly once. The corner, z equals zero, goes to the point at infinity. Opposite edges give the same points, so they get glued. And every elliptic curve comes from some lattice this way. The curve is C mod Lambda.",
+    draw(p) {
+      const a = ease(seg(p, 0, 0.05));
+      latticeDots(() => a);
+      dot(...LO, 5, COL.white, a);
+      const pa = ease(seg(p, 0.07, 0.11));
+      if (pa > 0) {
+        const c = [LO, lpt(1, 0), lpt(1, 1), lpt(0, 1)];
+        ctx.save();
+        ctx.globalAlpha = pa;
+        ctx.fillStyle = 'rgba(255,79,163,0.22)';
+        ctx.beginPath(); ctx.moveTo(...c[0]); for (const q of c.slice(1)) ctx.lineTo(...q); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      periods(a);
+      const ca = ease(seg(p, 0.34, 0.38));
+      ring(...LO, 13, COL.pink, ca, 3);
+      txt('z = 0  ↦  ∞', LO[0] - 30, LO[1] + 46, { size: 22, font: MATH, italic: true, color: COL.pink, alpha: ease(seg(p, 0.42, 0.46)) });
+      const ea = ease(seg(p, 0.52, 0.56));
+      arrow(...LO, ...lpt(1, 0), COL.white, 4.5, ea, 1);
+      arrow(...lpt(0, 1), ...lpt(1, 1), COL.white, 4.5, ea, 1);
+      arrow(...LO, ...lpt(0, 1), COL.lav, 4.5, ea, 2);
+      arrow(...lpt(1, 0), ...lpt(1, 1), COL.lav, 4.5, ea, 2);
+      txt('one parallelogram hits each point of E exactly once', 410, 96, { size: 21, color: COL.soft, alpha: fade(p, 0.08, 0.12, 0.33, 0.36) });
+      txt('the corner z = 0 goes to the extra point at ∞', 410, 96, { size: 21, color: COL.soft, alpha: fade(p, 0.36, 0.39, 0.5, 0.52) });
+      txt('same-colored edges are glued', 410, 96, { size: 21, color: COL.soft, alpha: ease(seg(p, 0.52, 0.56)) });
+      const RX = 1010;
+      txt('z ↦ (℘(z), ℘′(z))', RX, 170, { size: 30, font: MATH, italic: true, alpha: a });
+      txt('0 ↦ ∞', RX, 235, { size: 28, font: MATH, italic: true, color: COL.soft, alpha: ease(seg(p, 0.42, 0.46)) });
+      txt('every elliptic curve', RX, 315, { size: 22, alpha: ease(seg(p, 0.67, 0.71)) });
+      txt('comes from some lattice Λ', RX, 347, { size: 22, alpha: ease(seg(p, 0.69, 0.73)) });
+      txt('E(ℂ) ≅ ℂ / Λ', RX, 450, { size: 46, font: MATH, weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(p, 0.83, 0.88)) });
+      txt('“C mod Lambda”', RX, 500, { size: 18, color: COL.dim, alpha: ease(seg(p, 0.86, 0.9)) });
+    },
+  },
+  {
+    title: 'Glue the edges',
+    text: 'Now just glue. Topologically, we can straighten the parallelogram into a rectangle. Glue the top edge to the bottom edge, and you get a cylinder. Then bend the cylinder around until its two end circles meet. The result is a torus. The elliptic curve, the complex plane modulo a lattice, and a donut are all the same shape.',
+    draw(p, t, dur) {
+      const sh = 0.41 * (1 - ease(seg(p, 0.1, 0.24)));
+      const t1 = ease(seg(p, 0.28, 0.46));
+      const t2 = ease(seg(p, 0.5, 0.72));
+      const spin = Math.max(0, t - 0.72 * dur) * 0.45;
+      const yaw = 0.5 * ease(seg(p, 0.28, 0.42)) + 0.2 * ease(seg(p, 0.5, 0.72)) + spin;
+      const pitch = 0.2 * ease(seg(p, 0.28, 0.42)) + 0.85 * ease(seg(p, 0.5, 0.72));
+      drawSurface({
+        t1, t2: t1 < 1 ? 0 : t2, sh, yaw, pitch, cx: 640, cy: 380, scale: 118 + 32 * ease(seg(p, 0.5, 0.72)),
+        alpha: ease(seg(p, 0, 0.06)),
+        hv: [{ j: 0, c: COL.white }, { j: NV, c: COL.white }],
+        hu: [{ i: 0, c: COL.lav }, { i: NU, c: COL.lav }],
+      });
+      txt('straighten it into a rectangle (topology doesn’t care)', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.04, 0.1, 0.25, 0.28) });
+      txt('glue white edge to white edge → a cylinder', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.28, 0.31, 0.47, 0.5) });
+      txt('glue purple circle to purple circle → a torus', 640, 92, { size: 24, color: COL.soft, alpha: fade(p, 0.5, 0.53, 0.72, 0.75) });
+      txt('E(ℂ)  =  ℂ / Λ  =  a torus', 640, 92, { size: 36, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: ease(seg(p, 0.75, 0.82)) });
+    },
+  },
+  {
+    title: 'Recap',
+    text: "To wrap up. The two loops on the torus, around the hole and around the tube, come from the two periods, omega one and omega two. One bonus: since the torus is C mod Lambda, you add two points by adding their z's as vectors, then wrapping back into the parallelogram. Remarkably, this matches a purely geometric rule on the curve: three points on a line add to zero. So an elliptic curve over the complex numbers is a torus, a surface with one hole, with addition built in.",
+    draw(p, t) {
+      drawSurface({
+        yaw: 0.7 + t * 0.35, pitch: 1.0, cx: 880, cy: 380, scale: 135,
+        alpha: ease(seg(p, 0, 0.05)),
+        hv: [{ j: Math.round(NV * 0.75), c: COL.white, w: 4 }],
+        hu: [{ i: 0, c: COL.lav, w: 4 }],
+      });
+      const X = 70;
+      const row = (y, s, a, o = {}) => txt(s, X, y, { size: 27, align: 'left', alpha: a, ...o });
+      row(165, 'E(ℂ)  =  ℂ / Λ  =  a torus', ease(seg(p, 0.03, 0.1)), { font: MATH, size: 32, color: COL.pink, weight: 700 });
+      const l1 = ease(seg(p, 0.096, 0.13)), l2 = ease(seg(p, 0.13, 0.17));
+      line(X, 245, X + 34, 245, COL.white, 4, l1);
+      row(245, '      around the hole  ↔  ω₁', l1);
+      line(X, 305, X + 34, 305, COL.lav, 4, l2);
+      row(305, '      around the tube  ↔  ω₂', l2, { color: COL.lav });
+      row(352, 'adding points  =  adding z’s, wrapped mod Λ', ease(seg(p, 0.37, 0.41)), { size: 24, color: COL.soft });
+      // a small parallelogram: z₁ + z₂ leaves it, then wraps back by −ω₁
+      const O = [110, 505], u1 = [190, 0], u2 = [60, -120];
+      const P = (m, n) => [O[0] + m * u1[0] + n * u2[0], O[1] + m * u1[1] + n * u2[1]];
+      const ga = ease(seg(p, 0.37, 0.41));
+      if (ga > 0) {
+        const c = [P(0, 0), P(1, 0), P(1, 1), P(0, 1)];
+        ctx.save();
+        ctx.globalAlpha = ga; ctx.fillStyle = 'rgba(255,79,163,0.14)';
+        ctx.beginPath(); ctx.moveTo(...c[0]); for (const q of c.slice(1)) ctx.lineTo(...q); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        line(...c[0], ...c[1], COL.white, 2.5, ga); line(...c[3], ...c[2], COL.white, 2.5, ga);
+        line(...c[0], ...c[3], COL.lav, 2.5, ga); line(...c[1], ...c[2], COL.lav, 2.5, ga);
+      }
+      const z1 = P(0.6, 0.2), z2 = P(0.7, 0.6), zs = P(1.3, 0.8), zw = P(0.3, 0.8);
+      const va = ease(seg(p, 0.4, 0.44));
+      arrow(...O, ...z1, COL.soft, 2.5, va); arrow(...O, ...z2, COL.soft, 2.5, va);
+      txt('z₁', z1[0] + 16, z1[1] - 12, { size: 18, font: MATH, italic: true, color: COL.soft, alpha: va });
+      txt('z₂', z2[0] + 18, z2[1] + 6, { size: 18, font: MATH, italic: true, color: COL.soft, alpha: va });
+      const sa = ease(seg(p, 0.44, 0.48));
+      if (sa > 0) {
+        ctx.save(); ctx.setLineDash([5, 6]);
+        line(...z1, lerp(z1[0], zs[0], sa), lerp(z1[1], zs[1], sa), COL.soft, 2, 0.8);
+        ctx.restore();
+        dot(...zs, 6, COL.dim, ease(seg(p, 0.46, 0.48)));
+      }
+      const wr = ease(seg(p, 0.48, 0.53));
+      if (wr > 0) {
+        ctx.save(); ctx.setLineDash([5, 6]);
+        line(...zs, lerp(zs[0], zw[0], wr), zs[1], COL.white, 2, 0.8);
+        ctx.restore();
+        txt('− ω₁', zs[0] + 36, zs[1] + 2, { size: 18, font: MATH, italic: true, alpha: wr });
+        dot(lerp(zs[0], zw[0], wr), zs[1], 8, COL.pink, 1, 14);
+        txt('z₁ + z₂', zw[0] - 15, zw[1] + 24, { size: 18, font: MATH, italic: true, color: COL.pink, alpha: ease(seg(p, 0.52, 0.55)) });
+      }
+      txt('geometry agrees: 3 points on a line add to 0', X, 548, { size: 22, align: 'left', color: COL.soft, alpha: ease(seg(p, 0.55, 0.6)) });
+      txt('one hole, with addition built in', X, 592, { size: 30, align: 'left', weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(p, 0.85, 0.9)) });
+    },
+  },
+];
+
+startVideo({ title: 'Why an elliptic curve over ℂ is a torus', scenes });
+</script>
+</body>
+</html>

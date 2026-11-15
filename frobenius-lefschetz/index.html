@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frobenius and Lefschetz</title>
+<link rel="stylesheet" href="../_shared/player.css">
+<script src="../_shared/player.js"></script>
+</head>
+<body>
+<script>
+// ───────────────────────────── arithmetic ─────────────────────────────
+// 𝔽₄₉ = { a + b·i : a, b mod 7 } with i² = −1   (−1 is not a square mod 7).
+const p = 7;
+const md = (n) => ((n % p) + p) % p;
+const mul = (u, v) => [md(u[0] * v[0] - u[1] * v[1]), md(u[0] * v[1] + u[1] * v[0])];
+const eq = (u, v) => u[0] === v[0] && u[1] === v[1];
+const conj = (u) => [u[0], md(-u[1])];                       // Frobenius on 𝔽₄₉: (a + bi)⁷ = a − bi
+const F49 = []; for (let a = 0; a < p; a++) for (let b = 0; b < p; b++) F49.push([a, b]);
+// E : y² = x³ − x + 1 over 𝔽₄₉
+const E49 = [];
+for (const x of F49) {
+  const r = mul(mul(x, x), x); const rhs = [md(r[0] - x[0] + 1), md(r[1] - x[1])];
+  for (const y of F49) if (eq(mul(y, y), rhs)) E49.push([x, y]);
+}
+const FIXED = E49.filter(([x, y]) => eq(conj(x), x) && eq(conj(y), y)).length + 1;  // + ∞
+const TOTAL49 = E49.length + 1;
+const SWAPPED = TOTAL49 - FIXED;
+// sₙ = αⁿ + ᾱⁿ with α + ᾱ = −4, αᾱ = 7
+const S = [2, -4]; for (let n = 2; n <= 6; n++) S.push(-4 * S[n - 1] - 7 * S[n - 2]);
+const Nn = (n) => 7 ** n + 1 - S[n];
+const minus = (n) => String(n).replace('-', '−');
+const binom = (n, k) => { let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return r; };
+
+// ───────────────────────────── scenes ─────────────────────────────
+const scenes = [
+  {
+    title: 'Intro',
+    text: "Back in the cohomology video we wrote down a magic formula: the number of points mod p equals one, minus the trace of Frobenius on H one, plus p. This video explains where it comes from, in two steps. First: the points mod p are exactly the fixed points of one special map, called Frobenius. Second: the Lefschetz formula counts fixed points of any map, using traces on cohomology. Put them together, and the formula falls out.",
+    draw(p) {
+      txt('Frobenius & Lefschetz', 640, 90, { size: 58, weight: 700, color: COL.pink, glow: 22, alpha: ease(seg(p, 0.0, 0.08)) });
+      txt('#E(𝔽ₚ)  =  1 − tr(Frob | H¹) + p', 640, 190, { size: 40, font: MATH, alpha: ease(seg(p, 0.08, 0.16)) });
+      txt('where does this come from?', 640, 245, { size: 24, color: COL.soft, alpha: ease(seg(p, 0.2, 0.26)) });
+      const la = ease(seg(p, 0.36, 0.44)), ra = ease(seg(p, 0.56, 0.64));
+      panel(110, 300, 480, 230, '', la);
+      txt('step 1', 350, 340, { size: 20, color: COL.pink, weight: 700, alpha: la });
+      txt('points mod p', 350, 405, { size: 30, weight: 700, alpha: la });
+      txt('=  fixed points of Frobenius', 350, 455, { size: 26, color: COL.soft, alpha: la });
+      panel(690, 300, 480, 230, '', ra);
+      txt('step 2', 930, 340, { size: 20, color: COL.pink, weight: 700, alpha: ra });
+      txt('Lefschetz', 930, 405, { size: 30, weight: 700, alpha: ra });
+      txt('fixed points  =  Σ ± traces', 930, 455, { size: 26, font: MATH, color: COL.soft, alpha: ra });
+      arrow(595, 415, 685, 415, COL.pink, 3, ease(seg(p, 0.66, 0.72)));
+      txt('put them together → the formula', 640, 600, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(p, 0.82, 0.9)) });
+    },
+  },
+  {
+    title: 'Raising to the p-th power',
+    text: "Frobenius is simple: raise everything to the p-th power. Mod seven, look what happens to each number. Zero to the seventh is zero. One to the seventh is one. Two to the seventh is a hundred twenty-eight, which is two mod seven. Every number comes back to itself. That's Fermat's little theorem. And here's the miracle: x plus y, to the seventh, equals x to the seventh plus y to the seventh, because all the middle binomial coefficients are multiples of seven, so they vanish. Raising to the p-th power respects addition and multiplication. It's a symmetry of arithmetic.",
+    draw(pp) {
+      const C = [330, 350], R = 175;
+      const a0 = ease(seg(pp, 0.04, 0.12));
+      ring(...C, R, COL.pink, 0.4 * a0, 2);
+      txt('mod 7', ...C, { size: 26, color: COL.dim, alpha: a0 });
+      for (let k = 0; k < 7; k++) {
+        const ang = TAU * k / 7;
+        const x = C[0] + R * Math.sin(ang), y = C[1] - R * Math.cos(ang);
+        const la = ease(seg(pp, 0.12 + k * 0.035, 0.16 + k * 0.035));
+        // self-loop
+        const ox = Math.sin(ang), oy = -Math.cos(ang);
+        ring(x + ox * 47, y + oy * 47, 16, COL.lav, la, 2.5);
+        dot(x, y, 27, la > 0.5 ? COL.pink : COL.bg, a0, la > 0.5 ? 14 : 0);
+        ring(x, y, 27, COL.pink, a0, 2);
+        txt(String(k), x, y, { size: 26, weight: 700, color: la > 0.5 ? COL.bg : COL.white, alpha: a0 });
+      }
+      txt('2⁷ = 128 = 18·7 + 2', 330, 590, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(pp, 0.22, 0.3)) });
+      txt('x⁷ = x  for every x   (Fermat)', 330, 640, { size: 26, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(pp, 0.4, 0.46)) });
+      // binomial coefficients
+      const ba = ease(seg(pp, 0.5, 0.58));
+      txt('(x + y)⁷  =', 900, 170, { size: 32, font: MATH, alpha: ba });
+      for (let k = 0; k <= 7; k++) {
+        const v = binom(7, k), mid = k > 0 && k < 7;
+        const x = 740 + k * 46, kill = ease(seg(pp, 0.66, 0.72));
+        txt(String(v), x, 250, { size: 26, font: MATH, weight: 700, color: mid ? COL.lav : COL.white, alpha: ba * (mid ? 1 - 0.7 * kill : 1) });
+        if (mid) line(x - 18, 262, x + 18, 238, COL.pink, 2.5, kill);
+      }
+      txt('the middle ones are all multiples of 7', 900, 300, { size: 20, color: COL.dim, alpha: ease(seg(pp, 0.6, 0.66)) });
+      txt('(x + y)⁷  =  x⁷ + y⁷', 900, 390, { size: 38, font: MATH, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(pp, 0.72, 0.78)) });
+      txt('(xy)⁷  =  x⁷ y⁷', 900, 450, { size: 32, font: MATH, alpha: ease(seg(pp, 0.8, 0.85)) });
+      txt('Frob : x ↦ xᵖ is a symmetry of arithmetic', 900, 540, { size: 26, color: COL.soft, alpha: ease(seg(pp, 0.88, 0.94)) });
+    },
+  },
+  {
+    title: 'A bigger field',
+    text: "Mod seven, Frobenius fixes everything, so it's boring. It gets interesting in a bigger field. Since minus one isn't a square mod seven, we can invent a square root i, just like with complex numbers. The field with forty-nine elements, which we'll write as F forty-nine, is all numbers a plus b i. In the picture, b runs from minus three to three, and minus three just means four mod seven. Now raise to the seventh power. The numbers a and b come back to themselves, and i to the seventh is minus i, because i squared is minus one. So a plus b i becomes a minus b i. Frobenius is complex conjugation! It flips the grid upside down: watch two plus three i trade places with two minus three i. Which numbers stay put? Exactly the middle row, where b is zero: the ordinary numbers mod seven.",
+    draw(pp, t, dur) {
+      const X0 = 150, YC = 390, CELL = 62;
+      const a0 = ease(seg(pp, 0.3, 0.36));
+      txt('𝔽₄₉ = { a + b i },   i² = −1', 360, 100, { size: 32, font: MATH, alpha: ease(seg(pp, 0.2, 0.28)) });
+      // flip: starts once Frobenius is introduced, keeps swinging
+      const fl = pp > 0.75 ? 0.5 - 0.5 * Math.cos(Math.max(0, t - 0.75 * dur) * 1.2) : 0;
+      const k = Math.cos(Math.PI * fl);
+      const ha = ease(seg(pp, 0.79, 0.84));            // highlight 2 + 3i and 2 − 3i
+      for (let a = 0; a < 7; a++) for (let b = -3; b <= 3; b++) {
+        const x = X0 + a * CELL, y = YC - b * CELL * k;
+        const fixed = b === 0;
+        const glow = fixed && pp > 0.9;
+        const marked = a === 2 && (b === 3 || b === -3) && ha > 0;
+        if (marked) continue;
+        dot(x, y, glow ? 11 : 8, glow ? COL.pink : fixed ? COL.white : COL.lav, a0 * (fixed || pp < 0.9 ? 1 : 0.6), glow ? 18 : 6);
+      }
+      if (ha > 0) {
+        for (const b of [3, -3]) {
+          const x = X0 + 2 * CELL, y = YC - b * CELL * k;
+          const c = b > 0 ? COL.pink : COL.white;
+          dot(x, y, 12, c, a0 * ha, 18);
+          ring(x, y, 18, c, a0 * ha, 2);
+          txt(b > 0 ? '2 + 3i' : '2 − 3i', x, y + (y < YC ? -30 : 30), { size: 20, font: MATH, weight: 700, color: c, alpha: a0 * ha });
+        }
+      }
+      txt('a →', X0 + 3 * CELL, YC + 4 * CELL - 10, { size: 18, color: COL.dim, alpha: a0 });
+      txt('b', X0 - 50, YC - 3 * CELL, { size: 20, font: MATH, italic: true, color: COL.dim, alpha: a0 });
+      txt('3', X0 - 30, YC - 3 * CELL, { size: 18, color: COL.dim, alpha: a0 });
+      txt('−3', X0 - 30, YC + 3 * CELL, { size: 18, color: COL.dim, alpha: a0 });
+      txt('(−3 ≡ 4)', X0 - 30, YC + 3 * CELL + 24, { size: 18, color: COL.soft, alpha: ease(seg(pp, 0.43, 0.48)) });
+      ctx.save(); ctx.setLineDash([6, 8]);
+      line(X0 - 20, YC, X0 + 6 * CELL + 20, YC, COL.pink, 1.5, 0.6 * ease(seg(pp, 0.89, 0.93)));
+      ctx.restore();
+      const RX = 960;
+      txt('(a + b i)⁷  =  a⁷ + b⁷ i⁷', RX, 180, { size: 30, font: MATH, alpha: ease(seg(pp, 0.48, 0.54)) });
+      txt('a⁷ = a,   b⁷ = b,   i⁷ = (i²)³ i = −i', RX, 232, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(pp, 0.57, 0.63)) });
+      txt('=  a − b i', RX + 40, 287, { size: 32, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(pp, 0.66, 0.71)) });
+      txt('Frobenius = conjugation', RX, 370, { size: 30, weight: 700, color: COL.lav, glow: 12, alpha: ease(seg(pp, 0.74, 0.79)) });
+      txt('(it flips the grid:  2 + 3i  ⇄  2 − 3i)', RX, 410, { size: 20, color: COL.dim, alpha: ease(seg(pp, 0.8, 0.85)) });
+      txt('fixed points: b = 0', RX, 490, { size: 28, alpha: ease(seg(pp, 0.9, 0.94)) });
+      txt('=  𝔽₇, the ordinary numbers', RX, 540, { size: 28, color: COL.pink, weight: 700, alpha: ease(seg(pp, 0.95, 0.99)) });
+    },
+  },
+  {
+    title: 'Frobenius moves points',
+    text: "Now apply Frobenius to points on our curve, which we'll call E: y squared equals x cubed minus x plus one. Raise both coordinates to the seventh power. Because the coefficients, one and minus one, are fixed by Frobenius, a solution always goes to a solution. Over F forty-nine, the curve E has forty-eight points. Frobenius leaves twelve of them where they are, including the point at infinity, which Frobenius always fixes: there's only one point at infinity, so it has nowhere else to go. These are the twelve points mod seven we counted before. The other thirty-six get swapped in pairs. So the points mod p are exactly the fixed points of Frobenius.",
+    draw(pp, t, dur) {
+      txt('Frob(x, y) = (x⁷, y⁷)', 640, 70, { size: 34, font: MATH, alpha: ease(seg(pp, 0.04, 0.1)) });
+      txt('coefficients 1, −1 are fixed  ⟹  solutions go to solutions', 640, 115, { size: 20, color: COL.dim, alpha: ease(seg(pp, 0.25, 0.31)) });
+      const C = [430, 425], RI = 90, RO = 200;
+      const a0 = ease(seg(pp, 0.4, 0.46));
+      txt(`E over 𝔽₄₉:  ${TOTAL49} points`, 430, 165, { size: 26, color: COL.soft, alpha: a0 });
+      const sw = pp > 0.83 ? 0.5 - 0.5 * Math.cos(Math.max(0, t - 0.83 * dur) * 1.4) : 0;
+      // swapped pairs on the outer ring
+      const npair = SWAPPED / 2, oa = a0 * (pp > 0.5 ? 1 : 0.9);
+      for (let j = 0; j < npair; j++) {
+        const t0 = TAU * (2 * j + 0.5) / SWAPPED, t1 = TAU * (2 * j + 1.5) / SWAPPED;
+        const q0 = lerp(t0, t1, sw), q1 = lerp(t1, t0, sw);
+        const P0 = [C[0] + RO * Math.sin(q0), C[1] - RO * Math.cos(q0)];
+        const P1 = [C[0] + RO * Math.sin(q1), C[1] - RO * Math.cos(q1)];
+        dot(...P0, 7, COL.lav, oa, 8); dot(...P1, 7, COL.lav, oa, 8);
+        const arcR = RO + 22, ga = ease(seg(pp, 0.83, 0.87));
+        const arc = Array.from({ length: 11 }, (_, i) => { const q = lerp(t0, t1, i / 10); return [C[0] + arcR * Math.sin(q), C[1] - arcR * Math.cos(q)]; });
+        polyline(arc, COL.lav, 1.5, 0.6 * ga);
+      }
+      // fixed points in the middle
+      const fa = ease(seg(pp, 0.48, 0.54));
+      const ia = ease(seg(pp, 0.55, 0.6));
+      for (let j = 0; j < FIXED; j++) {
+        const q = TAU * j / FIXED;
+        const P0 = [C[0] + RI * Math.sin(q), C[1] - RI * Math.cos(q)];
+        dot(...P0, 9, pp > 0.5 ? COL.pink : COL.lav, a0, pp > 0.5 ? 16 : 6);
+        if (j === 0) { txt('∞', P0[0], P0[1] - 26, { size: 22, weight: 700, color: ia > 0 ? COL.white : COL.soft, alpha: fa }); ring(P0[0], P0[1], 20, COL.white, 0.8 * ia * (pp < 0.74 ? 1 : 0.4), 2); }
+        ring(P0[0], P0[1] - 0, 14, COL.pink, 0.5 * fa, 1.5);
+      }
+      txt('fixed', C[0], C[1], { size: 22, color: COL.pink, alpha: fa });
+      const RX = 970;
+      txt(`${FIXED} fixed`, RX, 260, { size: 40, weight: 700, color: COL.pink, glow: 16, alpha: fa });
+      txt('including ∞, always fixed', RX, 305, { size: 22, color: COL.soft, alpha: ia });
+      txt('(only one point at infinity: nowhere else to go)', RX, 335, { size: 19, color: COL.dim, alpha: ease(seg(pp, 0.63, 0.68)) });
+      txt('= the points mod 7 (video 4)', RX, 375, { size: 22, color: COL.soft, alpha: ease(seg(pp, 0.75, 0.8)) });
+      txt(`${SWAPPED} swapped in pairs`, RX, 450, { size: 32, weight: 700, color: COL.lav, alpha: ease(seg(pp, 0.83, 0.87)) });
+      txt('points mod p  =  fixed points of Frob', RX, 555, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(pp, 0.89, 0.94)) });
+    },
+  },
+  {
+    title: 'Powers of Frobenius',
+    text: "Think of the curve E with coordinates in all the finite fields built from arithmetic mod seven at once: seven elements, forty-nine, three hundred forty-three, and so on, each one sitting inside the next. Frobenius acts on that whole set, and each power of Frobenius picks out one layer. Apply Frobenius twice, and those swapped pairs come back home. Frobenius squared fixes all forty-eight points over F forty-nine. In general, the n-th power of Frobenius fixes exactly the points over the field with p to the n elements. So every count in the zeta function, twelve, forty-eight, three hundred twenty-four, is a count of fixed points of some power of Frobenius. Counting solutions has become counting fixed points. And for counting fixed points, topology has a tool.",
+    draw(pp) {
+      // nested fields 𝔽₇ ⊂ 𝔽₄₉ ⊂ 𝔽₃₄₃
+      const NC = [205, 360];
+      const layers = [['𝔽₇', 55, 0.15, 0.39], ['𝔽₄₉', 105, 0.17, 0.47], ['𝔽₃₄₃', 155, 0.19, 0.54]];
+      const live = pp < 0.31 ? -1 : pp < 0.42 ? 0 : pp < 0.5 ? 1 : 2;
+      layers.forEach(([lab, r, at], i) => {
+        const a = ease(seg(pp, at, at + 0.05)), on = i === live;
+        ring(...NC, r, on ? COL.pink : COL.lav, a * (on ? 1 : 0.5), on ? 3.5 : 2);
+        txt(lab, NC[0], NC[1] - r + (i === 0 ? 55 : 25), { size: 20, font: MATH, weight: on ? 700 : 400, color: on ? COL.pink : COL.soft, alpha: a });
+      });
+      txt('⊂ ⊂ ⊂ …', NC[0], NC[1] + 185, { size: 18, font: MATH, color: COL.dim, alpha: ease(seg(pp, 0.2, 0.25)) });
+      txt('Frobⁿ fixes one layer', NC[0], 120, { size: 20, color: COL.pink, alpha: ease(seg(pp, 0.31, 0.37)) });
+      txt('E over all fields built from arithmetic mod 7, at once', 640, 60, { size: 24, color: COL.soft, alpha: ease(seg(pp, 0.02, 0.1)) });
+      const rows = [
+        ['Frob', 'points over 𝔽₇', Nn(1), 0.31],
+        ['Frob²', 'points over 𝔽₄₉', Nn(2), 0.42],
+        ['Frob³', 'points over 𝔽₃₄₃', Nn(3), 0.5],
+        ['Frobⁿ', 'over the field with pⁿ elements', 'Nₙ', 0.55],
+      ];
+      txt('fixed points of', 520, 170, { size: 22, color: COL.soft, alpha: ease(seg(pp, 0.31, 0.37)) });
+      txt('=', 600, 170, { size: 22, color: COL.soft, alpha: ease(seg(pp, 0.31, 0.37)) });
+      rows.forEach(([f, what, n, at], i) => {
+        const a = ease(seg(pp, at, at + 0.05));
+        const y = 230 + i * 70;
+        txt(f, 520, y, { size: 32, font: MATH, weight: 700, color: COL.lav, alpha: a });
+        txt(what, 640, y, { size: 24, align: 'left', alpha: a });
+        txt(String(n), 1170, y, { size: 34, font: MATH, weight: 700, color: COL.pink, alpha: a });
+      });
+      txt('counting solutions  =  counting fixed points', 640, 590, { size: 32, weight: 700, color: COL.pink, glow: 16, alpha: ease(seg(pp, 0.86, 0.91)) });
+      txt('and topology has a tool for that…', 640, 640, { size: 24, color: COL.soft, alpha: ease(seg(pp, 0.93, 0.97)) });
+    },
+  },
+  {
+    title: 'Lefschetz on the torus',
+    text: "Here's the Lefschetz formula again, warmed up on the torus with three maps. Sliding the torus along has no fixed points. It doesn't change any loop, so the trace on H one is two, and one minus two plus one is zero. Correct. The half-turn, z to minus z, flips both loops: trace minus two, giving four fixed points, as in the cohomology video. And doubling, z to two z, stretches both loops by two, so the trace is four. It wraps the torus around itself two times two, so four times: the determinant of its matrix on H one. So H two contributes four. One minus four plus four is one: just the origin. The H two term is how many times the map wraps the surface around itself. One fine print: Lefschetz really counts fixed points with multiplicity. Each one counts exactly once, as long as the derivative there doesn't leave any direction unchanged.",
+    draw(pp) {
+      txt('# fixed points  =  tr H⁰  −  tr H¹  +  tr H²', 640, 80, { size: 34, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(pp, 0.02, 0.1)) });
+      const hx = [470, 640, 790, 940, 1110];
+      const ha = ease(seg(pp, 0.06, 0.12));
+      ['map', 'H⁰', 'H¹', 'H²', 'fixed'].forEach((h, i) => txt(h, i === 0 ? 300 : hx[i], 150, { size: 24, font: MATH, color: COL.soft, alpha: ha }));
+      const rows = [
+        ['slide  z ↦ z + c', '1', '2', '1', '0', 0.08, 0.14, 0.2, []],
+        ['half-turn  z ↦ −z', '1', '−2', '1', '4', 0.28, 0.34, 0.38, [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]]],
+        ['double  z ↦ 2z', '1', '4', '4', '1', 0.42, 0.47, 0.67, [[0, 0]]],
+      ];
+      rows.forEach(([m, h0, h1, h2, f, at, vt, ft, fx], i) => {
+        const a = ease(seg(pp, at, at + 0.05)), y = 230 + i * 130;
+        txt(m, 120, y, { size: 26, font: MATH, align: 'left', alpha: a });
+        // tiny torus square
+        const S0 = [hx[0] - 10, y - 45], SZ = 90;
+        if (a > 0) {
+          ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = 'rgba(255,79,163,0.6)'; ctx.fillStyle = 'rgba(255,79,163,0.1)';
+          ctx.fillRect(...S0, SZ, SZ); ctx.strokeRect(...S0, SZ, SZ); ctx.restore();
+          for (const [u, v] of fx) dot(S0[0] + SZ * (0.2 + 1.2 * u), S0[1] + SZ * (0.8 - 1.2 * v), 6, COL.pink, a, 12);
+        }
+        const va = ease(seg(pp, vt, vt + 0.05));
+        // for doubling, the H² number arrives with the "two times two" line
+        const v2 = i === 2 ? ease(seg(pp, 0.52, 0.57)) : va;
+        txt(h0, hx[1], y, { size: 30, font: MATH, alpha: va });
+        txt(h1, hx[2], y, { size: 30, font: MATH, color: COL.lav, alpha: va });
+        txt(h2, hx[3], y, { size: 30, font: MATH, alpha: v2 });
+        if (i === 2) txt('= det = 2·2', hx[3], y + 32, { size: 18, font: MATH, color: COL.dim, alpha: ease(seg(pp, 0.56, 0.61)) });
+        txt(f, hx[4], y, { size: 36, font: MATH, weight: 700, color: COL.pink, glow: 12, alpha: ease(seg(pp, ft, ft + 0.05)) });
+      });
+      txt('tr H² = how many times the map wraps the surface around itself  (= det on H¹)', 640, 600, { size: 22, color: COL.soft, alpha: ease(seg(pp, 0.74, 0.79)) });
+      txt('fine print: fixed points count with multiplicity; each counts once if the derivative there leaves no direction unchanged', 640, 645, { size: 19, color: COL.dim, alpha: ease(seg(pp, 0.84, 0.9)) });
+    },
+  },
+  {
+    title: 'Lefschetz for Frobenius',
+    text: "Now feed Frobenius into Lefschetz. On H zero, the trace is one. On H one, Frobenius is a two by two matrix with eigenvalues alpha and alpha bar, and its trace is a sub p. On H two, just like for doubling, the number is the determinant of that matrix. For doubling it was two times two. For Frobenius it's alpha times alpha bar, which is p. So Frobenius wraps the curve around itself p times. Altogether, the number of fixed points is one, minus a sub p, plus p.",
+    draw(pp) {
+      const cols = [['H⁰', '1', 0.05], ['H¹', 'α + ᾱ = aₚ', 0.12], ['H²', 'det = α·ᾱ = p', 0.38]];
+      const xs = [260, 640, 1020];
+      cols.forEach(([h, tr, at], i) => {
+        const a = ease(seg(pp, at, at + 0.06));
+        panel(xs[i] - 170, 110, 340, 190, '', a);
+        txt(h, xs[i], 150, { size: 30, font: MATH, color: COL.soft, alpha: a });
+        txt(i === 2 ? 'tr = p' : `tr = ${tr}`, xs[i], 210, { size: 32, font: MATH, weight: 700, alpha: a, color: i === 1 ? COL.lav : COL.white });
+      });
+      txt('2×2 matrix, eigenvalues α, ᾱ', 640, 255, { size: 18, color: COL.dim, alpha: ease(seg(pp, 0.2, 0.26)) });
+      txt('doubling: det = 2·2 = 4', 1020, 248, { size: 18, font: MATH, color: COL.dim, alpha: ease(seg(pp, 0.55, 0.6)) });
+      txt('Frob: det = α·ᾱ = p', 1020, 278, { size: 20, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(pp, 0.63, 0.68)) });
+      txt('Frobenius wraps the curve around itself p times', 640, 360, { size: 24, color: COL.soft, alpha: ease(seg(pp, 0.73, 0.79)) });
+      // the formula, term by term
+      const fa = ease(seg(pp, 0.84, 0.9));
+      txt('#Fix(Frob)  =', 440, 460, { size: 42, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: fa });
+      const terms = [['1', 640, 'H⁰'], ['−', 700, ''], ['aₚ', 760, 'H¹'], ['+', 825, ''], ['p', 885, 'H²']];
+      for (const [s, x, h] of terms) {
+        txt(s, x, 460, { size: 42, font: MATH, weight: 700, color: COL.pink, glow: 18, alpha: fa });
+        if (h) txt(h, x, 515, { size: 20, font: MATH, color: COL.soft, alpha: fa });
+      }
+    },
+  },
+  {
+    title: 'Checking the count',
+    text: "Let's check it. For seven, a sub p is minus four, so we get one, plus four, plus seven: twelve. Exactly the points we counted. For Frobenius squared, the trace is alpha squared plus alpha bar squared, since the eigenvalues of Frobenius squared are alpha squared and alpha bar squared. That works out to two. One minus two plus forty-nine is forty-eight. Correct again. One last worry: does each fixed point count exactly once? Yes. The derivative of x to the p is p times x to the p minus one, which is zero mod p. So the derivative of Frobenius is zero, and it leaves no direction unchanged. Every fixed point counts once, and the formula from the cohomology video is explained.",
+    draw(pp) {
+      txt('#Fix  =  1  −  tr(on H¹)  +  tr(on H²)', 640, 70, { size: 26, font: MATH, color: COL.soft, alpha: ease(seg(pp, 0.0, 0.05)) });
+      txt(`p = 7:   aₚ = −4,   1 − (−4) + 7  =  ${Nn(1)}`, 640, 140, { size: 30, font: MATH, alpha: ease(seg(pp, 0.03, 0.09)) });
+      txt('✓ the 12 points we counted', 640, 182, { size: 20, color: COL.pink, alpha: ease(seg(pp, 0.16, 0.2)) });
+      txt('Frob²:   eigenvalues α², ᾱ²   ⟹   tr = α² + ᾱ²', 640, 255, { size: 28, font: MATH, alpha: ease(seg(pp, 0.2, 0.26)) });
+      txt(`α² + ᾱ²  =  (α + ᾱ)² − 2αᾱ  =  16 − 14  =  ${S[2]}`, 640, 300, { size: 24, font: MATH, color: COL.soft, alpha: ease(seg(pp, 0.41, 0.46)) });
+      txt(`1 − ${S[2]} + 49  =  ${Nn(2)}`, 640, 350, { size: 32, font: MATH, weight: 700, color: COL.pink, alpha: ease(seg(pp, 0.45, 0.5)) });
+      txt('does each fixed point count once?', 640, 430, { size: 24, color: COL.soft, alpha: ease(seg(pp, 0.52, 0.57)) });
+      txt('d(xᵖ)/dx  =  p·xᵖ⁻¹  =  0   mod p', 640, 480, { size: 28, font: MATH, alpha: ease(seg(pp, 0.61, 0.67)) });
+      txt('derivative 0  ⟹  no direction left unchanged  ⟹  each fixed point counts once', 640, 525, { size: 21, color: COL.soft, alpha: ease(seg(pp, 0.78, 0.84)) });
+      txt('the formula from the cohomology video, explained', 640, 620, { size: 28, weight: 700, color: COL.pink, glow: 14, alpha: ease(seg(pp, 0.92, 0.97)) });
+    },
+  },
+  {
+    title: 'The catch',
+    text: "There's one huge catch. We used H zero, H one and H two of a curve mod p, with Frobenius acting on them. Where do those come from? The complex numbers have a topology, but no Frobenius: raising to the p-th power doesn't respect addition there. And mod p, the obvious way to define 'nearby' for points is so crude that every curve looks like it has no loops, so its H one is zero. We need a new cohomology that lives mod p, has Frobenius, and still sees the two loops of a torus. Grothendieck built it. That's étale cohomology, the next video.",
+    draw(pp) {
+      txt('we need Hⁱ of a curve mod p, with Frobenius acting', 640, 90, { size: 28, color: COL.soft, alpha: ease(seg(pp, 0.04, 0.12)) });
+      const opts = [
+        ['complex topology', 'has loops, but no Frobenius', '(x + y)ᵖ ≠ xᵖ + yᵖ over ℂ', 0.27, false],
+        ['obvious “nearby” mod p', 'has Frobenius, but too crude: sees no loops', 'H¹ = 0', 0.44, false],
+        ['étale cohomology', 'lives mod p · has Frobenius · H¹ has size 2', 'Grothendieck, 1960s', 0.72, true],
+      ];
+      opts.forEach(([h, s, n, at, good], i) => {
+        const a = ease(seg(pp, at, at + 0.06)), y = 170 + i * 150;
+        panel(170, y, 940, 120, '', a);
+        txt(h, 210, y + 38, { size: 28, weight: 700, align: 'left', color: good ? COL.pink : COL.white, alpha: a });
+        txt(s, 210, y + 82, { size: 22, align: 'left', color: COL.soft, alpha: a });
+        txt(n, 1070, y + 60, { size: 22, font: MATH, align: 'right', color: COL.dim, alpha: a });
+        const ma = ease(seg(pp, at + 0.08, at + 0.12));
+        if (good) txt('✓', 130, y + 60, { size: 44, weight: 700, color: COL.pink, glow: 16, alpha: ma });
+        else txt('✗', 130, y + 60, { size: 40, weight: 700, color: COL.dim, alpha: ma });
+      });
+      txt('next: étale cohomology', 640, 640, { size: 32, weight: 700, color: COL.pink, glow: 20, alpha: ease(seg(pp, 0.88, 0.94)) });
+    },
+  },
+];
+
+startVideo({ title: 'Frobenius & Lefschetz', scenes });
+</script>
+</body>
+</html>
